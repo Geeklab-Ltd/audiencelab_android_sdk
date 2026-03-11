@@ -494,11 +494,13 @@ class AudienceLabSDKTest {
         AudienceLabSDK.sendCustomEvent("queued_until_token")
 
         val calledPaths = mutableListOf<String>()
+        val fetchAttempted = CountDownLatch(1)
         AudienceLabSDK.setApiClientForTesting(
             object : ApiClient {
                 override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
                     calledPaths.add(path)
                     if (path == Endpoints.FETCH_TOKEN) {
+                        fetchAttempted.countDown()
                         callback(
                             Result.failure(
                                 NetworkError.HttpFailure(
@@ -516,6 +518,7 @@ class AudienceLabSDKTest {
 
         invokePrivateSdkMethod("flushQueue", "test_unauthorized")
 
+        assertTrue(fetchAttempted.await(2, TimeUnit.SECONDS))
         assertEquals(listOf(Endpoints.FETCH_TOKEN), calledPaths)
         assertEquals(3, AudienceLabSDK.getQueueSize())
     }
