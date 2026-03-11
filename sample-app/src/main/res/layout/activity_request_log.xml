@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <TextView
+        android:id="@+id/request_log_summary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#E6EEF6"
+        android:padding="12dp"
+        android:textColor="#18344D"
+        android:textIsSelectable="true"
+        android:textSize="12sp"
+        android:typeface="monospace" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="8dp">
+
+        <ListView
+            android:id="@+id/request_log_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:divider="@android:color/transparent"
+            android:dividerHeight="8dp"
+            android:padding="0dp" />
+
+        <TextView
+            android:id="@+id/request_log_empty"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:text="No requests logged yet."
+            android:textColor="#5C6470"
+            android:textSize="16sp" />
+    </FrameLayout>
+</LinearLayout>

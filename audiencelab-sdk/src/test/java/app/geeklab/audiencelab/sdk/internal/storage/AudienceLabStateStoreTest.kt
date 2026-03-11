@@ -64,6 +64,7 @@ class AudienceLabStateStoreTest {
                         "en" to "level_up",
                         "pr" to mapOf("level" to 9)
                     ),
+                    createdAtMillis = 1_700_000_000_050,
                     attemptCount = 2,
                     nextAttemptAtMillis = 1_700_000_000_500,
                     queuedAtMillis = 1_700_000_000_100
@@ -95,6 +96,7 @@ class AudienceLabStateStoreTest {
         assertEquals("evt_1", queuedEvent.eventId)
         assertEquals("custom", queuedEvent.type)
         assertEquals("dk_1", queuedEvent.dedupeKey)
+        assertEquals(1_700_000_000_050, queuedEvent.createdAtMillis)
         assertEquals(2, queuedEvent.attemptCount)
         assertEquals(1_700_000_000_500, queuedEvent.nextAttemptAtMillis)
         assertEquals(1_700_000_000_100, queuedEvent.queuedAtMillis)

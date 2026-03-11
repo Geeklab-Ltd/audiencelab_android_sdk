@@ -19,6 +19,7 @@ class EventEnvelopeMapperTest {
                 sdkType = "native_android",
                 appVersion = "2.5.1",
                 developmentMode = false,
+                createdAtMillis = 1_700_000_000_000L,
                 dedupeKey = "dk-1",
                 whitelistedProperties = mapOf("campaign" to "summer"),
                 blacklistedProperties = mapOf("external_id" to "abc123"),
@@ -44,6 +45,7 @@ class EventEnvelopeMapperTest {
         assertEquals("ad", envelope["type"])
         assertEquals("token-123", envelope["creativeToken"])
         assertEquals("evt_test_1", envelope["eid"])
+        assertEquals("2023-11-14 22:13:20", envelope["created_at"])
         assertEquals("gaid-123", envelope["ga"])
         assertEquals("asid-456", envelope["asid"])
         assertEquals("aid-789", envelope["aid"])
@@ -65,6 +67,7 @@ class EventEnvelopeMapperTest {
                 sdkType = "native_android",
                 appVersion = "unknown",
                 developmentMode = true,
+                createdAtMillis = 1_700_000_000_000L,
                 dedupeKey = null,
                 whitelistedProperties = emptyMap(),
                 blacklistedProperties = emptyMap(),

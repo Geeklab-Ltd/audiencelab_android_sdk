@@ -1,7 +1,10 @@
 package app.geeklab.audiencelab.sdk.internal.identity
 
+import com.google.android.gms.ads.identifier.AdvertisingIdClient
+import com.google.android.gms.appset.AppSet
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IdentityCollectorTest {
@@ -22,5 +25,45 @@ class IdentityCollectorTest {
         assertEquals("asid-456", snapshot.asid)
         assertEquals(true, snapshot.lat)
         assertNull(snapshot.aid)
+    }
+
+    @Test
+    fun collectDetailed_marksIdentitySettled_whenContextIsUnavailable() {
+        val result = IdentityCollector.collectDetailed(
+            context = null,
+            advertisingIdProvider = null,
+            appSetIdProvider = null,
+            overrides = IdentityOverrides(
+                ga = "gaid-123",
+                asid = "asid-456",
+                lat = true
+            ),
+            allowAutoResolve = false
+        )
+
+        assertTrue(result.diagnostics.settled)
+        assertTrue(result.diagnostics.androidIdSettled)
+        assertTrue(result.diagnostics.advertisingIdSettled)
+        assertTrue(result.diagnostics.appSetIdSettled)
+    }
+
+    @Test
+    fun readAdvertisingInfoReflectively_readsPlayServicesInfo_whenClassesExist() {
+        AdvertisingIdClient.advertisingId = "gaid-auto-123"
+        AdvertisingIdClient.limitAdTrackingEnabled = true
+
+        val info = PlayServicesIdentityReader.readAdvertisingInfoReflectively(context = null)
+
+        assertEquals("gaid-auto-123", info?.advertisingId)
+        assertEquals(true, info?.limitAdTracking)
+    }
+
+    @Test
+    fun readAppSetIdReflectively_readsPlayServicesInfo_whenClassesExist() {
+        AppSet.appSetId = "asid-auto-456"
+
+        val appSetId = PlayServicesIdentityReader.readAppSetIdReflectively(context = null)
+
+        assertEquals("asid-auto-456", appSetId)
     }
 }

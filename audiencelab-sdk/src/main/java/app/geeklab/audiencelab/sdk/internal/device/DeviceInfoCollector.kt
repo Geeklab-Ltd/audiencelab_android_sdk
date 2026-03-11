@@ -8,7 +8,9 @@ import java.util.TimeZone
 
 internal object DeviceInfoCollector {
     fun collect(context: Context?): DeviceInfo {
-        val displayMetrics = (context?.resources ?: Resources.getSystem()).displayMetrics
+        val displayMetrics = runCatching {
+            (context?.resources ?: Resources.getSystem()).displayMetrics
+        }.getOrNull()
         val timezone = TimeZone.getDefault()
         val now = System.currentTimeMillis()
         val manufacturer = Build.MANUFACTURER.orEmpty().trim()
@@ -28,8 +30,8 @@ internal object DeviceInfoCollector {
             deviceName = deviceName,
             deviceModel = model,
             osSystem = "Android $osVersion",
-            width = displayMetrics.widthPixels,
-            height = displayMetrics.heightPixels,
+            width = displayMetrics?.widthPixels ?: 0,
+            height = displayMetrics?.heightPixels ?: 0,
             timezone = timezone.id,
             utcOffsetHours = timezone.getOffset(now).toDouble() / 3_600_000.0
         )

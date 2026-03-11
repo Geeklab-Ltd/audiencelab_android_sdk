@@ -1,5 +1,8 @@
 package app.geeklab.audiencelab.sdk
 
+import app.geeklab.audiencelab.sdk.internal.network.ApiClient
+import app.geeklab.audiencelab.sdk.internal.network.Endpoints
+import app.geeklab.audiencelab.sdk.internal.network.NetworkError
 import app.geeklab.audiencelab.sdk.internal.storage.AudienceLabStateStore
 import app.geeklab.audiencelab.sdk.internal.storage.InMemoryKeyValueStore
 import app.geeklab.audiencelab.sdk.internal.storage.PersistedQueuedEvent
@@ -10,6 +13,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class AudienceLabSDKTest {
     @Before
@@ -35,6 +40,23 @@ class AudienceLabSDKTest {
         assertTrue(initialized)
         assertTrue(AudienceLabSDK.isInitialized())
         assertNotNull(AudienceLabSDK.getConfiguredApiKeyPreview())
+    }
+
+    @Test
+    fun initialize_usesExplicitDevelopmentModeOverride() {
+        AudienceLabSDK.initialize(
+            apiKey = "test-api-key-123",
+            options = AudienceLabOptions(isDevelopmentMode = true)
+        )
+
+        assertTrue(AudienceLabSDK.isDevelopmentMode())
+    }
+
+    @Test
+    fun initialize_defaultsDevelopmentModeToFalse_withoutContextOrOverride() {
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        assertFalse(AudienceLabSDK.isDevelopmentMode())
     }
 
     @Test
@@ -68,6 +90,16 @@ class AudienceLabSDKTest {
     }
 
     @Test
+    fun handleDeepLink_rejectsInvalidPlaceholderToken() {
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        AudienceLabSDK.handleDeepLink("myapp://open?audiencelab_token=bin")
+
+        assertNull(AudienceLabSDK.getCreativeToken())
+        assertEquals("myapp://open?audiencelab_token=bin", AudienceLabSDK.getDeepLink())
+    }
+
+    @Test
     fun sendAdEvent_updatesTotalsAndQueue() {
         AudienceLabSDK.initialize("test-api-key-123")
 
@@ -83,7 +115,7 @@ class AudienceLabSDKTest {
             currency = "USD"
         )
 
-        assertEquals(2, AudienceLabSDK.getQueueSize())
+        assertEquals(3, AudienceLabSDK.getQueueSize())
         assertEquals(1.25, AudienceLabSDK.getTotalAdValue(), 0.0001)
     }
 
@@ -106,8 +138,44 @@ class AudienceLabSDKTest {
             status = "failed"
         )
 
-        assertEquals(3, AudienceLabSDK.getQueueSize())
+        assertEquals(4, AudienceLabSDK.getQueueSize())
         assertEquals(4.99, AudienceLabSDK.getTotalPurchaseValue(), 0.0001)
+    }
+
+    @Test
+    fun adAndPurchaseValues_areStoredAsNumbersInQueuedPayloads() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.sendAdEvent(
+            adId = "ad-1",
+            name = "rewarded",
+            source = "admob",
+            watchTime = 30.0,
+            reward = true,
+            mediaSource = "network-a",
+            channel = "gameplay",
+            value = 1.25,
+            currency = "USD"
+        )
+        AudienceLabSDK.sendPurchaseEvent(
+            itemId = "starter.pack",
+            itemName = "Starter Pack",
+            value = 4.99,
+            currency = "USD",
+            status = "success"
+        )
+
+        val queuedEvents = store.loadSnapshot().queuedEvents
+        val adPayload = queuedEvents.first { it.type == "custom.ad" }.payload
+        val purchasePayload = queuedEvents.first { it.type == "custom.purchase" }.payload
+
+        assertTrue(adPayload["value"] is Number)
+        assertTrue(purchasePayload["value"] is Number)
+        assertEquals(1.25, (adPayload["value"] as Number).toDouble(), 0.0001)
+        assertEquals(4.99, (purchasePayload["value"] as Number).toDouble(), 0.0001)
     }
 
     @Test
@@ -116,7 +184,7 @@ class AudienceLabSDKTest {
 
         AudienceLabSDK.sendCustomEvent(name = "   ", params = mapOf("foo" to "bar"))
 
-        assertEquals(1, AudienceLabSDK.getQueueSize())
+        assertEquals(2, AudienceLabSDK.getQueueSize())
     }
 
     @Test
@@ -127,6 +195,59 @@ class AudienceLabSDKTest {
         AudienceLabSDK.sendUserMetrics()
 
         assertEquals(2, AudienceLabSDK.getQueueSize())
+    }
+
+    @Test
+    fun identityState_isSettled_withoutContextInitialization() {
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        assertTrue(AudienceLabSDK.isIdentitySettled())
+        val snapshot = AudienceLabSDK.getIdentityDebugSnapshot()
+        assertTrue(snapshot.settled)
+        assertTrue(snapshot.androidIdSettled)
+        assertTrue(snapshot.advertisingIdSettled)
+        assertTrue(snapshot.appSetIdSettled)
+    }
+
+    @Test
+    fun initialize_enqueuesSessionStartAndRetentionDayZero_onFirstLaunch() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+        val now = 10L * 24L * 60L * 60L * 1000L
+
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.setNowProviderForTesting { now }
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        val snapshot = store.loadSnapshot()
+        val sessionEvents = snapshot.queuedEvents.filter { it.type == "session" }
+        val retentionEvents = snapshot.queuedEvents.filter { it.type == "retention" }
+
+        assertEquals(1, sessionEvents.size)
+        assertEquals("start", sessionEvents.first().payload["a"])
+        assertEquals(1, retentionEvents.size)
+        assertEquals(0, retentionEvents.first().payload["retention_day"])
+        assertEquals(0, retentionEvents.first().payload["backfill_day"])
+        assertEquals(10, snapshot.firstRetentionDay)
+        assertEquals(10, snapshot.lastRetentionDay)
+    }
+
+    @Test
+    fun initialize_usesLastOpenedRetentionDayAsBackfillValue() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+        val currentDay = 105
+        val now = currentDay.toLong() * 24L * 60L * 60L * 1000L
+
+        store.setRetentionMarkers(firstRetentionDay = 100, lastRetentionDay = 102)
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.setNowProviderForTesting { now }
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        val retentionEvent = store.loadSnapshot().queuedEvents.last { it.type == "retention" }
+
+        assertEquals(5, retentionEvent.payload["retention_day"])
+        assertEquals(2, retentionEvent.payload["backfill_day"])
     }
 
     @Test
@@ -142,6 +263,28 @@ class AudienceLabSDKTest {
         AudienceLabSDK.setUserProperty("region", "eu", isWhitelisted = false)
         AudienceLabSDK.clearUserProperties(isWhitelisted = false)
         assertTrue(AudienceLabSDK.getBlacklistedUserProperties().isEmpty())
+    }
+
+    @Test
+    fun reservedWhitelistedProperties_surviveUnsetAndClear() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        val mergeMethod = AudienceLabSDK::class.java.getDeclaredMethod(
+            "mergeServerWhitelistedProperties",
+            Map::class.java
+        ).apply {
+            isAccessible = true
+        }
+        mergeMethod.invoke(AudienceLabSDK, mapOf("_network" to "meta", "country" to "FI"))
+
+        AudienceLabSDK.unsetUserProperty("_network", isWhitelisted = true)
+        AudienceLabSDK.clearUserProperties(isWhitelisted = true)
+
+        assertEquals("meta", AudienceLabSDK.getWhitelistedUserProperties()["_network"])
+        assertNull(AudienceLabSDK.getWhitelistedUserProperties()["country"])
     }
 
     @Test
@@ -210,7 +353,7 @@ class AudienceLabSDKTest {
         assertEquals(4.99, AudienceLabSDK.getTotalPurchaseValue(), 0.0001)
 
         AudienceLabSDK.sendUserMetrics()
-        assertEquals(3, AudienceLabSDK.getQueueSize())
+        assertEquals(4, AudienceLabSDK.getQueueSize())
     }
 
     @Test
@@ -241,7 +384,7 @@ class AudienceLabSDKTest {
         assertEquals("timeout", sessionEvents[1].second["r"])
         assertEquals("start", sessionEvents[2].first)
         assertEquals(2, snapshot.sessionIndex)
-        assertEquals(5, snapshot.queuedEvents.size)
+        assertEquals(6, snapshot.queuedEvents.size)
     }
 
     @Test
@@ -267,6 +410,7 @@ class AudienceLabSDKTest {
                     type = "custom",
                     dedupeKey = null,
                     payload = mapOf("en" to "stale"),
+                    createdAtMillis = staleQueuedAt,
                     attemptCount = 0,
                     nextAttemptAtMillis = 0L,
                     queuedAtMillis = staleQueuedAt
@@ -276,6 +420,7 @@ class AudienceLabSDKTest {
                     type = "custom",
                     dedupeKey = null,
                     payload = mapOf("en" to "fresh"),
+                    createdAtMillis = freshQueuedAt,
                     attemptCount = 0,
                     nextAttemptAtMillis = 0L,
                     queuedAtMillis = freshQueuedAt
@@ -288,8 +433,11 @@ class AudienceLabSDKTest {
         AudienceLabSDK.initialize("test-api-key-123")
 
         val snapshot = store.loadSnapshot()
-        assertEquals(1, snapshot.queuedEvents.size)
-        assertEquals("evt_fresh", snapshot.queuedEvents.first().eventId)
+        assertEquals(2, snapshot.queuedEvents.size)
+        assertEquals("evt_fresh", snapshot.queuedEvents.first { it.type == "custom" }.eventId)
+        val retentionEvent = snapshot.queuedEvents.first { it.type == "retention" }
+        assertEquals(0, retentionEvent.payload["retention_day"])
+        assertEquals(0, retentionEvent.payload["backfill_day"])
     }
 
     @Test
@@ -338,5 +486,189 @@ class AudienceLabSDKTest {
         }
 
         assertEquals(200, AudienceLabSDK.getQueueSize())
+    }
+
+    @Test
+    fun flushQueue_keepsWebhookEventsQueued_whenFetchTokenReturnsUnauthorized() {
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.sendCustomEvent("queued_until_token")
+
+        val calledPaths = mutableListOf<String>()
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    calledPaths.add(path)
+                    if (path == Endpoints.FETCH_TOKEN) {
+                        callback(
+                            Result.failure(
+                                NetworkError.HttpFailure(
+                                    statusCode = 401,
+                                    responseBody = mapOf("error" to "unauthorized")
+                                )
+                            )
+                        )
+                    } else {
+                        callback(Result.success(emptyMap()))
+                    }
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("flushQueue", "test_unauthorized")
+
+        assertEquals(listOf(Endpoints.FETCH_TOKEN), calledPaths)
+        assertEquals(3, AudienceLabSDK.getQueueSize())
+    }
+
+    @Test
+    fun flushQueue_dispatchesWebhook_afterCreativeTokenBecomesAvailable() {
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.sendCustomEvent("queued_then_delivered")
+        AudienceLabSDK.handleDeepLink("myapp://open?creative_token=real-token-123")
+
+        val webhookBodies = mutableListOf<Map<String, Any?>>()
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    if (path == Endpoints.WEBHOOK) {
+                        webhookBodies.add(body)
+                    }
+                    callback(Result.success(emptyMap()))
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("flushQueue", "test_ready")
+
+        assertEquals(1, webhookBodies.size)
+        assertEquals("real-token-123", webhookBodies.first()["creativeToken"])
+    }
+
+    @Test
+    fun fetchCreativeToken_rejectsBlankServerToken() {
+        val latch = CountDownLatch(1)
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    callback(Result.success(mapOf("token" to "   ")))
+                    latch.countDown()
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "blank_token_test")
+
+        assertTrue(latch.await(2, TimeUnit.SECONDS))
+        assertNull(AudienceLabSDK.getCreativeToken())
+        assertEquals("invalid_token", AudienceLabSDK.getTokenDebugSnapshot().lastFetchStatus)
+    }
+
+    @Test
+    fun fetchCreativeToken_rejectsPlaceholderServerToken() {
+        val latch = CountDownLatch(1)
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    callback(Result.success(mapOf("token" to "bin")))
+                    latch.countDown()
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "placeholder_token_test")
+
+        assertTrue(latch.await(2, TimeUnit.SECONDS))
+        assertNull(AudienceLabSDK.getCreativeToken())
+        assertEquals("invalid_token", AudienceLabSDK.getTokenDebugSnapshot().lastFetchStatus)
+    }
+
+    @Test
+    fun fetchCreativeToken_acceptsValidServerToken_andResetsRetryBudget() {
+        val latch = CountDownLatch(1)
+        AudienceLabSDK.initialize("test-api-key-123")
+        setPrivateSdkField("tokenFetchAttempt", 4)
+        setPrivateSdkField("tokenFetchNextAttemptAtMillis", 123_456L)
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    callback(Result.success(mapOf("token" to "server-token-123")))
+                    latch.countDown()
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "success_token_test")
+
+        assertTrue(latch.await(2, TimeUnit.SECONDS))
+        val snapshot = AudienceLabSDK.getTokenDebugSnapshot()
+        assertEquals("server-token-123", AudienceLabSDK.getCreativeToken())
+        assertTrue(snapshot.hasValidToken)
+        assertEquals("ok", snapshot.lastFetchStatus)
+        assertEquals(0, snapshot.attemptCount)
+        assertNull(snapshot.nextRetryAtMillis)
+    }
+
+    @Test
+    fun connectivityRestore_clearsTokenRetryBudget() {
+        AudienceLabSDK.initialize("test-api-key-123")
+        setPrivateSdkField("tokenFetchAttempt", 3)
+        setPrivateSdkField("tokenFetchNextAttemptAtMillis", 999_999L)
+
+        invokePrivateNoArgSdkMethod("onConnectivityRestored")
+
+        val snapshot = AudienceLabSDK.getTokenDebugSnapshot()
+        assertEquals(0, snapshot.attemptCount)
+        assertNull(snapshot.nextRetryAtMillis)
+    }
+
+    @Test
+    fun webhookEnvelope_preservesCreatedAtAcrossReplay() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+        val now = 1_700_000_000_000L
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.setNowProviderForTesting { now }
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.sendCustomEvent("created_at_test")
+        AudienceLabSDK.handleDeepLink("myapp://open?creative_token=real-token-123")
+
+        val queueEntry = AudienceLabSDK.getQueueDebugSnapshot().first { it.type == "custom" }
+        val webhookBodies = mutableListOf<Map<String, Any?>>()
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    if (path == Endpoints.WEBHOOK) {
+                        webhookBodies.add(body)
+                    }
+                    callback(Result.success(emptyMap()))
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("flushQueue", "created_at_test")
+
+        val createdAt = webhookBodies.first()["created_at"] as? String
+        assertEquals("2023-11-14 22:13:20", createdAt)
+        assertEquals(now, queueEntry.createdAtMillis)
+    }
+
+    private fun invokePrivateSdkMethod(methodName: String, arg: String) {
+        val method = AudienceLabSDK::class.java.getDeclaredMethod(methodName, String::class.java)
+        method.isAccessible = true
+        method.invoke(AudienceLabSDK, arg)
+    }
+
+    private fun invokePrivateNoArgSdkMethod(methodName: String) {
+        val method = AudienceLabSDK::class.java.getDeclaredMethod(methodName)
+        method.isAccessible = true
+        method.invoke(AudienceLabSDK)
+    }
+
+    private fun setPrivateSdkField(fieldName: String, value: Any) {
+        val field = AudienceLabSDK::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        field.set(AudienceLabSDK, value)
     }
 }

@@ -16,6 +16,16 @@ class RetryPolicyTest {
     }
 
     @Test
+    fun tokenBackoffMillis_usesParityBaseline_andCapsWithJitter() {
+        assertEquals(5_000L, RetryPolicy.tokenBackoffMillis(attempt = 1, jitterRatio = 0.0))
+        assertEquals(10_000L, RetryPolicy.tokenBackoffMillis(attempt = 2, jitterRatio = 0.0))
+        assertEquals(6_500L, RetryPolicy.tokenBackoffMillis(attempt = 1, jitterRatio = 0.3))
+        assertEquals(300_000L, RetryPolicy.tokenBackoffMillis(attempt = 99, jitterRatio = 0.3))
+        assertTrue(RetryPolicy.canRetryToken(9))
+        assertFalse(RetryPolicy.canRetryToken(10))
+    }
+
+    @Test
     fun isRetryable_classifiesNetworkErrors() {
         assertTrue(RetryPolicy.isRetryable(NetworkError.TransportFailure(IOException("offline"))))
         assertTrue(RetryPolicy.isRetryable(NetworkError.HttpFailure(500, emptyMap())))

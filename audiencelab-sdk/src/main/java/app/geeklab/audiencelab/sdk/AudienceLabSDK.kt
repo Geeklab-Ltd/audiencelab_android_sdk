@@ -1,15 +1,18 @@
 package app.geeklab.audiencelab.sdk
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import app.geeklab.audiencelab.sdk.internal.Logger
+import app.geeklab.audiencelab.sdk.internal.device.DeviceDebugCollector
 import app.geeklab.audiencelab.sdk.internal.device.DeviceInfoCollector
 import app.geeklab.audiencelab.sdk.internal.identity.IdentityCollector
 import app.geeklab.audiencelab.sdk.internal.identity.IdentityOverrides
+import app.geeklab.audiencelab.sdk.internal.identity.PlayServicesIdentityReader
 import app.geeklab.audiencelab.sdk.internal.network.ApiClient
 import app.geeklab.audiencelab.sdk.internal.network.Endpoints
 import app.geeklab.audiencelab.sdk.internal.network.EnvelopeBuildInput
@@ -24,7 +27,6 @@ import app.geeklab.audiencelab.sdk.internal.storage.AudienceLabStateStore
 import app.geeklab.audiencelab.sdk.internal.storage.InMemoryKeyValueStore
 import app.geeklab.audiencelab.sdk.internal.storage.PersistedQueuedEvent
 import app.geeklab.audiencelab.sdk.internal.storage.SharedPreferencesKeyValueStore
-import java.math.BigDecimal
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -38,7 +40,6 @@ import kotlin.math.roundToInt
 
 object AudienceLabSDK {
     private const val DEFAULT_STATE_PREFERENCES = "audiencelab.sdk.state"
-    private const val ORGANIC_TOKEN = "organic#gp"
     private const val SDK_TYPE = "native_android"
     private const val MAX_QUEUE_SIZE = 200
     private const val MAX_USER_PROPERTY_COUNT = 50
@@ -63,6 +64,9 @@ object AudienceLabSDK {
 
     @Volatile
     private var requestResultCallback: RequestResultCallback? = null
+
+    @Volatile
+    private var requestDebugListener: RequestDebugListener? = null
 
     @Volatile
     private var stateStore: AudienceLabStateStore = AudienceLabStateStore(InMemoryKeyValueStore())
@@ -99,6 +103,12 @@ object AudienceLabSDK {
 
     @Volatile
     private var tokenFetchNextAttemptAtMillis: Long = 0L
+
+    @Volatile
+    private var tokenFetchLastStatus: String = "idle"
+
+    @Volatile
+    private var tokenFetchLastAttemptAtMillis: Long? = null
 
     @Volatile
     private var tokenRetryFuture: ScheduledFuture<*>? = null
@@ -198,46 +208,86 @@ object AudienceLabSDK {
     @JvmStatic
     fun isDebugEnabled(): Boolean = getIsDebugEnabled()
 
+    @JvmStatic
+    fun isDevelopmentMode(): Boolean = state.developmentMode
+
+    @Synchronized
+    @JvmStatic
+    fun isIdentitySettled(): Boolean {
+        refreshIdentityDebugState(allowAutoResolve = false)
+        return state.identityDebugSnapshot.settled
+    }
+
+    @Synchronized
+    @JvmStatic
+    fun getIdentityDebugSnapshot(): IdentityDebugSnapshot {
+        refreshIdentityDebugState(allowAutoResolve = false)
+        return state.identityDebugSnapshot
+    }
+
+    @JvmStatic
+    fun getDeviceDebugSnapshot(): DeviceDebugSnapshot = DeviceDebugCollector.collect(applicationContext)
+
+    @JvmStatic
+    fun getTokenDebugSnapshot(): TokenDebugSnapshot {
+        val token = normalizeValidToken(state.creativeToken)
+        return TokenDebugSnapshot(
+            hasValidToken = token != null,
+            creativeTokenPreview = maskDebugValue(token),
+            lastFetchStatus = tokenFetchLastStatus,
+            lastAttemptAtMillis = tokenFetchLastAttemptAtMillis,
+            attemptCount = tokenFetchAttempt,
+            nextRetryAtMillis = tokenFetchNextAttemptAtMillis.takeIf { it > 0L }
+        )
+    }
+
     @Synchronized
     @JvmStatic
     fun setAdvertisingIdProvider(provider: AdvertisingIdProvider?) {
         advertisingIdProvider = provider
+        refreshIdentityDebugState(allowAutoResolve = false)
     }
 
     @Synchronized
     @JvmStatic
     fun setAppSetIdProvider(provider: AppSetIdProvider?) {
         appSetIdProvider = provider
+        refreshIdentityDebugState(allowAutoResolve = false)
     }
 
     @Synchronized
     @JvmStatic
     fun setAdvertisingId(gaid: String?) {
-        manualAdvertisingId = gaid?.trim()?.takeIf { it.isNotEmpty() }
+        manualAdvertisingId = normalizeValidToken(gaid)
+        refreshIdentityDebugState(allowAutoResolve = false)
     }
 
     @Synchronized
     @JvmStatic
     fun clearAdvertisingId() {
         manualAdvertisingId = null
+        refreshIdentityDebugState(allowAutoResolve = false)
     }
 
     @Synchronized
     @JvmStatic
     fun setAppSetId(appSetId: String?) {
-        manualAppSetId = appSetId?.trim()?.takeIf { it.isNotEmpty() }
+        manualAppSetId = normalizeValidToken(appSetId)
+        refreshIdentityDebugState(allowAutoResolve = false)
     }
 
     @Synchronized
     @JvmStatic
     fun clearAppSetId() {
         manualAppSetId = null
+        refreshIdentityDebugState(allowAutoResolve = false)
     }
 
     @Synchronized
     @JvmStatic
     fun setLimitAdTracking(value: Boolean?) {
         manualLimitAdTracking = value
+        refreshIdentityDebugState(allowAutoResolve = false)
     }
 
     @Synchronized
@@ -248,19 +298,24 @@ object AudienceLabSDK {
             return
         }
 
-        val token = extractTokenFromUrl(normalized)
-        if (!token.isNullOrBlank()) {
+        val token = normalizeValidToken(extractTokenFromUrl(normalized))
+        if (token != null) {
             stateStore.setCreativeToken(token)
+            tokenFetchLastStatus = "deep_link_token"
         }
 
         state = state.copy(
             deepLink = normalized,
             creativeToken = token ?: state.creativeToken
         )
+
+        if (token != null && apiClient != null && state.queue.isNotEmpty()) {
+            scheduleQueueFlush(delayMillis = 0L, reason = "deep_link_token")
+        }
     }
 
     @JvmStatic
-    fun getCreativeToken(): String? = state.creativeToken
+    fun getCreativeToken(): String? = normalizeValidToken(state.creativeToken)
 
     @JvmStatic
     fun getDeepLink(): String? = state.deepLink
@@ -285,7 +340,7 @@ object AudienceLabSDK {
         val backfillDay = if (previousLastDay == null) {
             0
         } else {
-            (currentDay - previousLastDay - 1).coerceAtLeast(0)
+            (previousLastDay - firstDay).coerceAtLeast(0)
         }
 
         state = state.copy(
@@ -362,7 +417,7 @@ object AudienceLabSDK {
                 "reward" to event.reward,
                 "media_source" to event.mediaSource,
                 "channel" to event.channel,
-                "value" to decimalString(sanitizedValue),
+                "value" to sanitizedValue,
                 "currency" to event.currency,
                 "total_ad_value" to totalAdValue
             ),
@@ -418,7 +473,7 @@ object AudienceLabSDK {
         val payload = mutableMapOf<String, Any?>(
             "item_id" to event.itemId,
             "item_name" to event.itemName,
-            "value" to decimalString(sanitizedValue),
+            "value" to sanitizedValue,
             "currency" to event.currency,
             "status" to event.status,
             "total_purchase_value" to totalPurchaseValue
@@ -538,6 +593,10 @@ object AudienceLabSDK {
     fun setUserProperty(key: String, value: String, scope: UserPropertyScope) {
         val normalizedKey = key.trim()
         val normalizedValue = value.trim()
+        if (scope == UserPropertyScope.WHITELISTED && isReservedWhitelistedPropertyKey(normalizedKey)) {
+            Logger.w("User property rejected: reserved whitelisted key $normalizedKey")
+            return
+        }
         if (!isValidUserProperty(key = normalizedKey, value = normalizedValue)) {
             return
         }
@@ -591,6 +650,10 @@ object AudienceLabSDK {
         if (normalizedKey.isEmpty()) {
             return
         }
+        if (scope == UserPropertyScope.WHITELISTED && isReservedWhitelistedPropertyKey(normalizedKey)) {
+            Logger.w("Reserved whitelisted property preserved: $normalizedKey")
+            return
+        }
 
         val updated = getUserProperties(scope).toMutableMap()
         updated.remove(normalizedKey)
@@ -607,7 +670,12 @@ object AudienceLabSDK {
     @Synchronized
     @JvmStatic
     fun clearUserProperties(scope: UserPropertyScope) {
-        updateUserProperties(scope, emptyMap())
+        val next = if (scope == UserPropertyScope.WHITELISTED) {
+            getUserProperties(scope).filterKeys(::isReservedWhitelistedPropertyKey)
+        } else {
+            emptyMap()
+        }
+        updateUserProperties(scope, next)
     }
 
     @JvmStatic
@@ -626,6 +694,22 @@ object AudienceLabSDK {
     fun getQueueSize(): Int = state.queue.size
 
     @JvmStatic
+    fun getQueueDebugSnapshot(): List<QueueDebugEntry> {
+        return state.queue.map { event ->
+            QueueDebugEntry(
+                requestName = buildRequestName(type = event.type, payload = event.payload),
+                eventId = event.eventId,
+                type = event.type,
+                payload = stringifyPayload(event.payload),
+                createdAtMillis = event.createdAtMillis,
+                attemptCount = event.attemptCount,
+                nextAttemptAtMillis = event.nextAttemptAtMillis,
+                queuedAtMillis = event.queuedAtMillis
+            )
+        }
+    }
+
+    @JvmStatic
     fun setRequestResultCallback(callback: RequestResultCallback?) {
         requestResultCallback = callback
     }
@@ -633,6 +717,16 @@ object AudienceLabSDK {
     @JvmStatic
     fun clearRequestResultCallback() {
         requestResultCallback = null
+    }
+
+    @JvmStatic
+    fun setRequestDebugListener(listener: RequestDebugListener?) {
+        requestDebugListener = listener
+    }
+
+    @JvmStatic
+    fun clearRequestDebugListener() {
+        requestDebugListener = null
     }
 
     @JvmStatic
@@ -666,11 +760,14 @@ object AudienceLabSDK {
         }
         state = State()
         requestResultCallback = null
+        requestDebugListener = null
         apiClient = null
         applicationContext = null
         tokenFetchInProgress = false
         tokenFetchAttempt = 0
         tokenFetchNextAttemptAtMillis = 0L
+        tokenFetchLastStatus = "idle"
+        tokenFetchLastAttemptAtMillis = null
         advertisingIdProvider = null
         appSetIdProvider = null
         manualAdvertisingId = null
@@ -680,6 +777,7 @@ object AudienceLabSDK {
         cancelScheduledTasks()
         unregisterRuntimeSignals()
         nowProvider = { System.currentTimeMillis() }
+        PlayServicesIdentityReader.resetForTesting()
         Logger.configure(false)
     }
 
@@ -688,19 +786,29 @@ object AudienceLabSDK {
         stateStore = store
         state = State()
         requestResultCallback = null
+        requestDebugListener = null
         tokenFetchInProgress = false
         tokenFetchAttempt = 0
         tokenFetchNextAttemptAtMillis = 0L
+        tokenFetchLastStatus = "idle"
+        tokenFetchLastAttemptAtMillis = null
         queueDispatchInProgress = false
         cancelScheduledTasks()
         unregisterRuntimeSignals()
         nowProvider = { System.currentTimeMillis() }
+        PlayServicesIdentityReader.resetForTesting()
         Logger.configure(false)
     }
 
     @Synchronized
     internal fun setNowProviderForTesting(provider: () -> Long) {
         nowProvider = provider
+    }
+
+    @Synchronized
+    internal fun setApiClientForTesting(client: ApiClient?) {
+        apiClient = client
+        queueDispatchInProgress = false
     }
 
     private fun initializeInternal(context: Context?, apiKey: String, options: AudienceLabOptions): Boolean {
@@ -728,6 +836,11 @@ object AudienceLabSDK {
             Triple(options.isSdkEnabled, options.isMetricsEnabled, options.isDebugEnabled)
         }
         val baseUrl = resolveBaseUrl(options)
+        val creativeToken = normalizeValidToken(snapshot.creativeToken)
+        val developmentMode = resolveDevelopmentMode(
+            explicitValue = options.isDevelopmentMode,
+            context = applicationContext
+        )
 
         val nowMillis = nowMillis()
         val restoredQueue = applyQueuePolicies(
@@ -746,9 +859,10 @@ object AudienceLabSDK {
             sdkEnabled = sdkEnabled,
             metricsEnabled = metricsEnabled,
             debugEnabled = debugEnabled,
+            developmentMode = developmentMode,
             appVersion = appVersion,
             baseUrl = baseUrl,
-            creativeToken = snapshot.creativeToken,
+            creativeToken = creativeToken,
             totalAdValue = snapshot.totalAdValue,
             totalPurchaseValue = snapshot.totalPurchaseValue,
             firstRetentionDay = snapshot.firstRetentionDay,
@@ -759,9 +873,15 @@ object AudienceLabSDK {
             sessionStartAtMillis = snapshot.sessionStartAtMillis,
             sessionAccumulatedDurationMillis = snapshot.sessionAccumulatedDurationMillis,
             sessionSegmentStartAtMillis = snapshot.sessionSegmentStartAtMillis,
-            queue = restoredQueue
+            queue = restoredQueue,
+            identityDebugSnapshot = emptyIdentityDebugSnapshot()
         )
         persistQueue()
+        stateStore.setCreativeToken(creativeToken)
+        tokenFetchLastStatus = if (creativeToken != null) "token_available" else "missing"
+        tokenFetchLastAttemptAtMillis = null
+        tokenFetchAttempt = 0
+        tokenFetchNextAttemptAtMillis = 0L
 
         stateStore.persistConfiguration(
             sdkEnabled = sdkEnabled,
@@ -769,6 +889,7 @@ object AudienceLabSDK {
             debugEnabled = debugEnabled,
             appVersion = appVersion
         )
+        refreshIdentityDebugState(allowAutoResolve = false)
         restoreSessionLifecycleAtInitialization(snapshot = snapshot, nowMillis = nowMillis)
 
         configureNetworkClient(baseUrl = baseUrl)
@@ -777,6 +898,7 @@ object AudienceLabSDK {
         Logger.configure(debugEnabled)
         Logger.d("AudienceLab Android SDK initialized with persisted state")
 
+        sendUserMetrics()
         fetchCreativeTokenIfNeeded(trigger = "initialize")
         scheduleQueueFlush(delayMillis = 0L, reason = "initialize")
 
@@ -800,22 +922,31 @@ object AudienceLabSDK {
 
         apiClient = HttpApiClient(
             baseUrl = baseUrl,
-            apiKeyProvider = { state.apiKey }
+            apiKeyProvider = { state.apiKey },
+            requestObserver = { entry ->
+                requestDebugListener?.onEntry(entry)
+            }
         )
     }
 
     private fun fetchCreativeTokenIfNeeded(trigger: String) {
-        if (state.creativeToken?.isNotBlank() == true) {
+        if (hasValidCreativeToken()) {
             synchronized(this) {
+                tokenFetchLastStatus = "token_available"
                 clearTokenRetryStateLocked()
             }
             return
         }
 
-        val client = apiClient ?: return
+        val client = apiClient ?: run {
+            synchronized(this) {
+                tokenFetchLastStatus = "client_unavailable"
+            }
+            return
+        }
 
         synchronized(this) {
-            if (tokenFetchInProgress || state.creativeToken?.isNotBlank() == true) {
+            if (tokenFetchInProgress || hasValidCreativeToken()) {
                 return
             }
 
@@ -827,56 +958,80 @@ object AudienceLabSDK {
             }
 
             tokenFetchInProgress = true
+            tokenFetchLastStatus = "fetching"
+            tokenFetchLastAttemptAtMillis = nowMillis
         }
 
-        val deviceInfo = DeviceInfoCollector.collect(applicationContext)
-        val identity = collectIdentity()
-        val payload = FetchTokenRequestMapper.map(
-            FetchTokenBuildInput(
-                sdkVersion = getSdkVersion(),
-                sdkType = SDK_TYPE,
-                appVersion = getAppVersion(),
-                developmentMode = BuildConfig.DEBUG,
-                whitelistedProperties = state.whitelistedUserProperties,
-                deviceInfo = deviceInfo,
-                identity = identity
+        scheduler.execute {
+            val deviceInfo = DeviceInfoCollector.collect(applicationContext)
+            val identity = collectIdentity()
+            val payload = FetchTokenRequestMapper.map(
+                FetchTokenBuildInput(
+                    sdkVersion = getSdkVersion(),
+                    sdkType = SDK_TYPE,
+                    appVersion = getAppVersion(),
+                    developmentMode = state.developmentMode,
+                    whitelistedProperties = state.whitelistedUserProperties,
+                    deviceInfo = deviceInfo,
+                    identity = identity
+                )
             )
-        )
 
-        client.post(Endpoints.FETCH_TOKEN, payload) { result ->
-            synchronized(this) {
-                tokenFetchInProgress = false
-            }
-
-            result.onSuccess { response ->
-                val token = response["token"] as? String
-                if (!token.isNullOrBlank()) {
-                    synchronized(this) {
-                        state = state.copy(creativeToken = token)
-                        stateStore.setCreativeToken(token)
-                        clearTokenRetryStateLocked()
-                    }
-                }
-
-                val serverWp = normalizeStringMap(response["wp"])
-                if (serverWp.isNotEmpty()) {
-                    synchronized(this) {
-                        mergeServerWhitelistedProperties(serverWp)
-                    }
-                }
-            }.onFailure { error ->
-                val retryable = RetryPolicy.isRetryable(error)
+            client.post(Endpoints.FETCH_TOKEN, payload) { result ->
                 synchronized(this) {
-                    if (retryable) {
-                        tokenFetchAttempt += 1
-                        val delayMillis = RetryPolicy.backoffMillis(tokenFetchAttempt)
-                        tokenFetchNextAttemptAtMillis = nowMillis() + delayMillis
-                        scheduleTokenRetryLocked(delayMillis = delayMillis, reason = "fetch_token_retry")
-                    } else {
-                        clearTokenRetryStateLocked()
-                    }
+                    tokenFetchInProgress = false
                 }
-                Logger.w("Fetch token failed ($trigger): ${error.message ?: "unknown"}")
+
+                result.onSuccess { response ->
+                    val token = normalizeValidToken(response["token"] as? String)
+                    if (token != null) {
+                        synchronized(this) {
+                            state = state.copy(creativeToken = token)
+                            stateStore.setCreativeToken(token)
+                            tokenFetchLastStatus = "ok"
+                            clearTokenRetryStateLocked()
+                            if (state.queue.isNotEmpty()) {
+                                scheduleQueueFlush(delayMillis = 0L, reason = "token_available")
+                            }
+                        }
+                    } else {
+                        synchronized(this) {
+                            tokenFetchLastStatus = "invalid_token"
+                        }
+                    }
+
+                    val serverWp = normalizeStringMap(response["wp"])
+                    if (serverWp.isNotEmpty()) {
+                        synchronized(this) {
+                            mergeServerWhitelistedProperties(serverWp)
+                        }
+                    }
+                }.onFailure { error ->
+                    val retryable = RetryPolicy.isRetryable(error)
+                    synchronized(this) {
+                        val nextFailedAttemptCount = tokenFetchAttempt + 1
+                        tokenFetchAttempt = nextFailedAttemptCount
+                        tokenFetchLastStatus = readableTokenStatus(error)
+                        if (retryable && RetryPolicy.canRetryToken(nextFailedAttemptCount)) {
+                            val delayMillis = RetryPolicy.tokenBackoffMillis(
+                                attempt = nextFailedAttemptCount,
+                                jitterRatio = randomJitterRatio()
+                            )
+                            tokenFetchNextAttemptAtMillis = nowMillis() + delayMillis
+                            scheduleTokenRetryLocked(delayMillis = delayMillis, reason = "fetch_token_retry")
+                        } else if (retryable) {
+                            tokenFetchLastStatus = "max_attempts"
+                            tokenFetchNextAttemptAtMillis = 0L
+                            tokenRetryFuture?.cancel(false)
+                            tokenRetryFuture = null
+                        } else {
+                            tokenFetchNextAttemptAtMillis = 0L
+                            tokenRetryFuture?.cancel(false)
+                            tokenRetryFuture = null
+                        }
+                    }
+                    Logger.w("Fetch token failed ($trigger): ${error.message ?: "unknown"}")
+                }
             }
         }
     }
@@ -896,6 +1051,34 @@ object AudienceLabSDK {
         tokenFetchNextAttemptAtMillis = 0L
         tokenRetryFuture?.cancel(false)
         tokenRetryFuture = null
+    }
+
+    private fun hasValidCreativeToken(): Boolean = normalizeValidToken(state.creativeToken) != null
+
+    private fun normalizeValidToken(token: String?): String? {
+        val normalized = token
+            ?.trim()
+            ?.trimStart('?')
+            ?.takeIf { it.isNotEmpty() }
+            ?: return null
+        if (normalized.equals("bin", ignoreCase = true)) {
+            return null
+        }
+        return normalized
+    }
+
+    private fun randomJitterRatio(): Double = Math.random() * 0.3
+
+    private fun readableTokenStatus(error: Throwable): String {
+        val networkError = error as? NetworkError
+        return when (networkError) {
+            is NetworkError.HttpFailure -> "http_${networkError.statusCode}"
+            NetworkError.ApiKeyMissing -> "api_key_missing"
+            is NetworkError.InvalidUrl -> "invalid_url"
+            is NetworkError.SerializationFailure -> "serialization_error"
+            is NetworkError.TransportFailure -> "transport_error"
+            else -> "request_failed"
+        }
     }
 
     private fun nowMillis(): Long = nowProvider.invoke()
@@ -944,6 +1127,47 @@ object AudienceLabSDK {
             ?.takeIf { it.isNotEmpty() }
             ?: state.baseUrl
             ?: Endpoints.DEFAULT_BASE_URL
+    }
+
+    private fun resolveDevelopmentMode(explicitValue: Boolean?, context: Context?): Boolean {
+        explicitValue?.let { return it }
+        if (context == null) {
+            return false
+        }
+        return (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    }
+
+    private fun refreshIdentityDebugState(allowAutoResolve: Boolean) {
+        val result = IdentityCollector.collectDetailed(
+            context = applicationContext,
+            advertisingIdProvider = advertisingIdProvider,
+            appSetIdProvider = appSetIdProvider,
+            overrides = IdentityOverrides(
+                ga = manualAdvertisingId,
+                asid = manualAppSetId,
+                lat = manualLimitAdTracking
+            ),
+            allowAutoResolve = allowAutoResolve
+        )
+        updateIdentityDebugSnapshot(result.diagnostics)
+    }
+
+    private fun updateIdentityDebugSnapshot(diagnostics: IdentityCollector.IdentityDiagnostics) {
+        state = state.copy(
+            identityDebugSnapshot = IdentityDebugSnapshot(
+                settled = diagnostics.settled,
+                advertisingIdSettled = diagnostics.advertisingIdSettled,
+                appSetIdSettled = diagnostics.appSetIdSettled,
+                androidIdSettled = diagnostics.androidIdSettled,
+                advertisingIdAvailable = diagnostics.advertisingId != null,
+                appSetIdAvailable = diagnostics.appSetId != null,
+                androidIdAvailable = diagnostics.androidId != null,
+                advertisingIdPreview = maskDebugValue(diagnostics.advertisingId),
+                appSetIdPreview = maskDebugValue(diagnostics.appSetId),
+                androidIdPreview = maskDebugValue(diagnostics.androidId),
+                limitAdTracking = diagnostics.limitAdTracking
+            )
+        )
     }
 
     private fun resolveAppVersion(explicitAppVersion: String?, context: Context?, fallback: String?): String {
@@ -1150,6 +1374,7 @@ object AudienceLabSDK {
             type = type,
             dedupeKey = dedupeKey,
             payload = payload,
+            createdAtMillis = nowMillis,
             attemptCount = 0,
             nextAttemptAtMillis = 0L,
             queuedAtMillis = nowMillis
@@ -1200,6 +1425,11 @@ object AudienceLabSDK {
                 return
             }
 
+            if (!hasValidCreativeToken()) {
+                fetchCreativeTokenIfNeeded(trigger = "queue_flush_$reason")
+                return
+            }
+
             val nextEvent = state.queue.firstOrNull { it.nextAttemptAtMillis <= nowMillis }
             if (nextEvent == null) {
                 scheduleNextQueueFlush(nowMillis = nowMillis, reason = reason)
@@ -1215,15 +1445,20 @@ object AudienceLabSDK {
 
     private fun dispatchEvent(event: QueuedEvent, client: ApiClient) {
         val envelope = synchronized(this) {
+            val creativeToken = normalizeValidToken(state.creativeToken)
+            if (creativeToken == null) {
+                return@synchronized null
+            }
             EventEnvelopeMapper.map(
                 EnvelopeBuildInput(
                     type = event.type,
                     payload = event.payload,
-                    creativeToken = state.creativeToken ?: ORGANIC_TOKEN,
+                    creativeToken = creativeToken,
                     sdkVersion = getSdkVersion(),
                     sdkType = SDK_TYPE,
                     appVersion = getAppVersion(),
-                    developmentMode = BuildConfig.DEBUG,
+                    developmentMode = state.developmentMode,
+                    createdAtMillis = event.createdAtMillis,
                     dedupeKey = event.dedupeKey,
                     whitelistedProperties = state.whitelistedUserProperties,
                     blacklistedProperties = state.blacklistedUserProperties,
@@ -1232,6 +1467,12 @@ object AudienceLabSDK {
                     eventId = event.eventId
                 )
             )
+        }
+        if (envelope == null) {
+            synchronized(this) {
+                queueDispatchInProgress = false
+            }
+            return
         }
 
         client.post(Endpoints.WEBHOOK, envelope) { result ->
@@ -1313,6 +1554,7 @@ object AudienceLabSDK {
                 type = event.type,
                 dedupeKey = event.dedupeKey,
                 payload = event.payload,
+                createdAtMillis = event.createdAtMillis,
                 attemptCount = event.attemptCount,
                 nextAttemptAtMillis = event.nextAttemptAtMillis,
                 queuedAtMillis = event.queuedAtMillis
@@ -1331,12 +1573,18 @@ object AudienceLabSDK {
         } else {
             nowMillis
         }
+        val createdAtMillis = if (persisted.createdAtMillis > 0L) {
+            persisted.createdAtMillis
+        } else {
+            queuedAtMillis
+        }
 
         return QueuedEvent(
             eventId = persisted.eventId,
             type = persisted.type,
             dedupeKey = persisted.dedupeKey,
             payload = persisted.payload,
+            createdAtMillis = createdAtMillis,
             attemptCount = persisted.attemptCount.coerceAtLeast(0),
             nextAttemptAtMillis = persisted.nextAttemptAtMillis.coerceAtLeast(0L),
             queuedAtMillis = queuedAtMillis
@@ -1514,25 +1762,35 @@ object AudienceLabSDK {
             }
         }
 
+        sendUserMetrics()
         fetchCreativeTokenIfNeeded(trigger = "foreground")
         scheduleQueueFlush(delayMillis = 0L, reason = "foreground")
     }
 
     private fun onConnectivityRestored() {
+        synchronized(this) {
+            clearTokenRetryStateLocked()
+            tokenFetchLastStatus = "connectivity_restored"
+        }
         fetchCreativeTokenIfNeeded(trigger = "connectivity")
         scheduleQueueFlush(delayMillis = 0L, reason = "connectivity")
     }
 
-    private fun collectIdentity() = IdentityCollector.collect(
-        context = applicationContext,
-        advertisingIdProvider = advertisingIdProvider,
-        appSetIdProvider = appSetIdProvider,
-        overrides = IdentityOverrides(
-            ga = manualAdvertisingId,
-            asid = manualAppSetId,
-            lat = manualLimitAdTracking
+    private fun collectIdentity(): app.geeklab.audiencelab.sdk.internal.identity.IdentitySnapshot {
+        val result = IdentityCollector.collectDetailed(
+            context = applicationContext,
+            advertisingIdProvider = advertisingIdProvider,
+            appSetIdProvider = appSetIdProvider,
+            overrides = IdentityOverrides(
+                ga = manualAdvertisingId,
+                asid = manualAppSetId,
+                lat = manualLimitAdTracking
+            ),
+            allowAutoResolve = true
         )
-    )
+        updateIdentityDebugSnapshot(result.diagnostics)
+        return result.snapshot
+    }
 
     private fun readableErrorMessage(error: Throwable): String {
         val networkError = error as? NetworkError
@@ -1635,6 +1893,10 @@ object AudienceLabSDK {
         state = state.copy(whitelistedUserProperties = updated)
     }
 
+    private fun isReservedWhitelistedPropertyKey(key: String): Boolean {
+        return key.startsWith("_")
+    }
+
     private fun isValidUserProperty(key: String, value: String): Boolean {
         if (key.isEmpty()) {
             Logger.w("User property rejected: key is empty")
@@ -1686,9 +1948,53 @@ object AudienceLabSDK {
         return value
     }
 
-    private fun decimalString(value: Double): String {
-        val normalized = sanitizeMonetaryValue(value)
-        return BigDecimal.valueOf(normalized).stripTrailingZeros().toPlainString()
+    private fun emptyIdentityDebugSnapshot(): IdentityDebugSnapshot {
+        return IdentityDebugSnapshot(
+            settled = false,
+            advertisingIdSettled = false,
+            appSetIdSettled = false,
+            androidIdSettled = false,
+            advertisingIdAvailable = false,
+            appSetIdAvailable = false,
+            androidIdAvailable = false,
+            advertisingIdPreview = null,
+            appSetIdPreview = null,
+            androidIdPreview = null,
+            limitAdTracking = null
+        )
+    }
+
+    private fun maskDebugValue(value: String?): String? {
+        val normalized = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return when {
+            normalized.length <= 4 -> "*".repeat(normalized.length)
+            normalized.length <= 10 -> normalized.take(2) + "..." + normalized.takeLast(2)
+            else -> normalized.take(4) + "..." + normalized.takeLast(4)
+        }
+    }
+
+    private fun stringifyPayload(payload: Map<String, Any?>): String {
+        return runCatching {
+            app.geeklab.audiencelab.sdk.internal.network.JsonCodec.toJsonString(payload)
+        }.getOrElse {
+            payload.toString()
+        }
+    }
+
+    private fun buildRequestName(type: String, payload: Map<String, Any?>): String {
+        return when (type) {
+            "custom" -> {
+                val eventName = payload["en"] as? String
+                if (eventName.isNullOrBlank()) "custom" else "custom:$eventName"
+            }
+            "custom.purchase" -> "purchase"
+            "custom.ad" -> "ad"
+            "session" -> {
+                val action = payload["a"] as? String
+                if (action.isNullOrBlank()) "session" else "session:$action"
+            }
+            else -> type
+        }
     }
 
     private fun utcEpochDay(nowMillis: Long = nowMillis()): Int {
@@ -1701,10 +2007,24 @@ object AudienceLabSDK {
         val sdkEnabled: Boolean = true,
         val metricsEnabled: Boolean = true,
         val debugEnabled: Boolean = false,
+        val developmentMode: Boolean = false,
         val appVersion: String? = null,
         val baseUrl: String? = null,
         val creativeToken: String? = null,
         val deepLink: String? = null,
+        val identityDebugSnapshot: IdentityDebugSnapshot = IdentityDebugSnapshot(
+            settled = false,
+            advertisingIdSettled = false,
+            appSetIdSettled = false,
+            androidIdSettled = false,
+            advertisingIdAvailable = false,
+            appSetIdAvailable = false,
+            androidIdAvailable = false,
+            advertisingIdPreview = null,
+            appSetIdPreview = null,
+            androidIdPreview = null,
+            limitAdTracking = null
+        ),
         val totalAdValue: Double = 0.0,
         val totalPurchaseValue: Double = 0.0,
         val queue: List<QueuedEvent> = emptyList(),
@@ -1726,6 +2046,7 @@ object AudienceLabSDK {
         val type: String,
         val dedupeKey: String?,
         val payload: Map<String, Any?>,
+        val createdAtMillis: Long,
         val attemptCount: Int = 0,
         val nextAttemptAtMillis: Long = 0L,
         val queuedAtMillis: Long

@@ -10,6 +10,7 @@ internal data class PersistedQueuedEvent(
     val type: String,
     val dedupeKey: String?,
     val payload: Map<String, Any?>,
+    val createdAtMillis: Long,
     val attemptCount: Int,
     val nextAttemptAtMillis: Long,
     val queuedAtMillis: Long
@@ -238,6 +239,7 @@ internal class AudienceLabStateStore(
                 "type" to event.type,
                 "dk" to event.dedupeKey,
                 "payload" to normalizeSerializableValue(event.payload),
+                "created_at" to event.createdAtMillis.coerceAtLeast(0L),
                 "attempt" to event.attemptCount.coerceAtLeast(0),
                 "next_at" to event.nextAttemptAtMillis.coerceAtLeast(0L),
                 "queued_at" to event.queuedAtMillis.coerceAtLeast(0L)
@@ -261,6 +263,7 @@ internal class AudienceLabStateStore(
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
         val payload = normalizePayloadMap(raw["payload"])
+        val createdAtMillis = (raw["created_at"] as? Number)?.toLong()?.coerceAtLeast(0L) ?: 0L
         val attemptCount = (raw["attempt"] as? Number)?.toInt()?.coerceAtLeast(0) ?: 0
         val nextAttemptAtMillis = (raw["next_at"] as? Number)?.toLong()?.coerceAtLeast(0L) ?: 0L
         val queuedAtMillis = (raw["queued_at"] as? Number)?.toLong()?.coerceAtLeast(0L) ?: 0L
@@ -270,6 +273,7 @@ internal class AudienceLabStateStore(
             type = type,
             dedupeKey = dedupeKey,
             payload = payload,
+            createdAtMillis = createdAtMillis,
             attemptCount = attemptCount,
             nextAttemptAtMillis = nextAttemptAtMillis,
             queuedAtMillis = queuedAtMillis

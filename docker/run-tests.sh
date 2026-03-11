@@ -17,8 +17,10 @@ if [[ -n "${DOCKER_PLATFORM}" ]]; then
     -w /workspace/audiencelab_android_sdk \
     "${IMAGE_TAG}" \
     ./gradlew \
+      --no-daemon \
       :audiencelab-sdk:testDebugUnitTest \
       :audiencelab-sdk:assembleRelease \
+      :audiencelab-sdk:publishReleasePublicationToMavenLocal \
       :sample-app:assembleDebug
 else
   docker build \
@@ -31,7 +33,9 @@ else
     -w /workspace/audiencelab_android_sdk \
     "${IMAGE_TAG}" \
     ./gradlew \
+      --no-daemon \
       :audiencelab-sdk:testDebugUnitTest \
       :audiencelab-sdk:assembleRelease \
+      :audiencelab-sdk:publishReleasePublicationToMavenLocal \
       :sample-app:assembleDebug
 fi

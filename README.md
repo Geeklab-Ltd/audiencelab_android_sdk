@@ -1,6 +1,11 @@
 # AudienceLab Android Native SDK
 
-Kotlin-based native Android SDK scaffold for AudienceLab.
+Kotlin-based native Android SDK for AudienceLab.
+
+Developer integration guide:
+
+- [DEVELOPER_README.md](/Users/nathan/Documents/GitHub/Audiencelab-SDKs/audiencelab_android_sdk/DEVELOPER_README.md)
+- [DISTRIBUTION.md](/Users/nathan/Documents/GitHub/Audiencelab-SDKs/audiencelab_android_sdk/DISTRIBUTION.md)
 
 ## SDK Targets
 
@@ -17,9 +22,9 @@ Kotlin-based native Android SDK scaffold for AudienceLab.
   - `build-tools;36.0.0`
   - `platform-tools`
 
-## Dependency Policy (Initial)
+## Dependency Policy
 
-This bootstrap intentionally keeps dependencies minimal.
+The SDK intentionally keeps dependencies minimal.
 
 - No networking library yet (OkHttp can be added later)
 - No JSON library yet (kotlinx.serialization or Moshi can be added later)
@@ -28,6 +33,18 @@ This bootstrap intentionally keeps dependencies minimal.
 
 - `audiencelab-sdk/`: Android library module (AAR)
 - `sample-app/`: Minimal Android app consuming `audiencelab-sdk`
+
+## Distribution Rules
+
+- Only the `release` AAR is intended for distribution.
+- GitHub Actions uploads `audiencelab-sdk-release-<SDK_VERSION>.aar`.
+- Maven publishing is configured for:
+  - `mavenLocal()`
+  - GitHub Packages
+- Maven coordinates:
+  - `ai.audiencelab:audiencelab-android-sdk:<SDK_VERSION>`
+- `dev` is not derived from the SDK AAR build type.
+- `dev` is controlled by the host app through `AudienceLabOptions.isDevelopmentMode`, or auto-detected from the host app's debuggable flag when `Context` initialization is used.
 
 ## Local Build Commands
 
@@ -77,12 +94,20 @@ Toggles:
 - `isMetricsCollectionEnabled()` / `getIsMetricsCollection()` (alias)
 - `setDebugEnabled(enabled: Boolean)`
 - `isDebugEnabled()` / `getIsDebugEnabled()` (alias)
+- `isDevelopmentMode()`
+
+Build-variant behavior:
+
+- `dev` in `/fetch-token` and `/webhook` payloads is driven by the host app.
+- Prefer `initialize(context, apiKey, options)` so the SDK can auto-detect the host app debuggable flag.
+- If you need explicit control, set `AudienceLabOptions(isDevelopmentMode = BuildConfig.DEBUG)` in the integrating app.
 
 Token and deep link access:
 
 - `handleDeepLink(url: String?)`
 - `getCreativeToken()`
 - `getDeepLink()`
+- `getTokenDebugSnapshot()`
 
 Ad, purchase, custom, and retention events:
 
@@ -116,10 +141,16 @@ Identity provider hooks (optional dependency path):
 
 - `setAdvertisingIdProvider(provider: AdvertisingIdProvider?)`
 - `setAppSetIdProvider(provider: AppSetIdProvider?)`
+- If Google Play Services ID support is already present in the host app, the SDK also attempts automatic reflective lookup for GAID and App Set ID without adding a hard dependency.
 - Manual overrides:
   - `setAdvertisingId(...)` / `clearAdvertisingId()`
   - `setAppSetId(...)` / `clearAppSetId()`
   - `setLimitAdTracking(...)`
+- Identity/debug observability:
+  - `isIdentitySettled()`
+  - `getIdentityDebugSnapshot()`
+  - `getDeviceDebugSnapshot()`
+  - `getQueueDebugSnapshot()`
 
 ## Naming and Interop Conventions
 
@@ -152,3 +183,12 @@ Identity provider hooks (optional dependency path):
   - queue persisted to disk
   - retry/backoff for `fetch-token` and `webhook` with retryable/non-retryable classification
   - automatic flush on SDK init, app foreground, and connectivity restore
+  - webhook delivery blocked until a valid creative token exists
+  - token validation rejects blank and placeholder values such as `bin`
+
+## Diagnostics
+
+- Request-level diagnostics are available through `setRequestDebugListener(...)`.
+- Queue inspection is available through `getQueueDebugSnapshot()`.
+- Token, identity, and device snapshots are available through the public debug snapshot getters.
+- The sample app includes request and queue log screens that surface these diagnostics without shipping UI from the SDK itself.
