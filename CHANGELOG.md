@@ -2,7 +2,7 @@
 
 All notable changes to this package are documented in this file.
 
-## [1.1.0] - 2026-03-10
+## [1.1.1] - 2026-03-11
 
 ### Added
 
@@ -19,7 +19,7 @@ All notable changes to this package are documented in this file.
 
 ### Changed
 
-- SDK version track moved from bootstrap `0.1.0` to parity target `1.1.0`.
+- SDK version track moved from bootstrap `0.1.0` to parity target `1.1.1`.
 - Backend `dev` handling is now controlled by the integrating app through `AudienceLabOptions.isDevelopmentMode` or host-app debuggable detection, rather than the SDK AAR build type.
 - Webhook delivery is gated on a valid creative token; queued events are no longer sent with placeholder or missing tokens.
 - Ad and purchase `value` fields are emitted as numeric values.
