@@ -134,6 +134,9 @@ object AudienceLabSDK {
     @Volatile
     private var nowProvider: () -> Long = { System.currentTimeMillis() }
 
+    @Volatile
+    private var runTasksInlineForTesting: Boolean = false
+
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
 
     @Synchronized
@@ -777,6 +780,7 @@ object AudienceLabSDK {
         cancelScheduledTasks()
         unregisterRuntimeSignals()
         nowProvider = { System.currentTimeMillis() }
+        runTasksInlineForTesting = false
         PlayServicesIdentityReader.resetForTesting()
         Logger.configure(false)
     }
@@ -796,6 +800,7 @@ object AudienceLabSDK {
         cancelScheduledTasks()
         unregisterRuntimeSignals()
         nowProvider = { System.currentTimeMillis() }
+        runTasksInlineForTesting = false
         PlayServicesIdentityReader.resetForTesting()
         Logger.configure(false)
     }
@@ -806,9 +811,23 @@ object AudienceLabSDK {
     }
 
     @Synchronized
+    internal fun setRunTasksInlineForTesting(enabled: Boolean) {
+        runTasksInlineForTesting = enabled
+    }
+
+    @Synchronized
     internal fun setApiClientForTesting(client: ApiClient?) {
         apiClient = client
         queueDispatchInProgress = false
+    }
+
+    @Synchronized
+    internal fun clearQueueForTesting() {
+        queueFlushFuture?.cancel(false)
+        queueFlushFuture = null
+        queueDispatchInProgress = false
+        state = state.copy(queue = emptyList())
+        persistQueue()
     }
 
     private fun initializeInternal(context: Context?, apiKey: String, options: AudienceLabOptions): Boolean {
@@ -962,7 +981,7 @@ object AudienceLabSDK {
             tokenFetchLastAttemptAtMillis = nowMillis
         }
 
-        scheduler.execute {
+        executeAsync {
             val deviceInfo = DeviceInfoCollector.collect(applicationContext)
             val identity = collectIdentity()
             val payload = FetchTokenRequestMapper.map(
@@ -1039,10 +1058,9 @@ object AudienceLabSDK {
     private fun scheduleTokenRetryLocked(delayMillis: Long, reason: String) {
         val normalizedDelayMillis = delayMillis.coerceAtLeast(0L)
         tokenRetryFuture?.cancel(false)
-        tokenRetryFuture = scheduler.schedule(
+        tokenRetryFuture = scheduleAsync(
             { fetchCreativeTokenIfNeeded(trigger = reason) },
-            normalizedDelayMillis,
-            TimeUnit.MILLISECONDS
+            normalizedDelayMillis
         )
     }
 
@@ -1401,12 +1419,27 @@ object AudienceLabSDK {
         val normalizedDelayMillis = delayMillis.coerceAtLeast(0L)
         synchronized(this) {
             queueFlushFuture?.cancel(false)
-            queueFlushFuture = scheduler.schedule(
+            queueFlushFuture = scheduleAsync(
                 { flushQueue(reason) },
-                normalizedDelayMillis,
-                TimeUnit.MILLISECONDS
+                normalizedDelayMillis
             )
         }
+    }
+
+    private fun executeAsync(task: () -> Unit) {
+        if (runTasksInlineForTesting) {
+            task()
+        } else {
+            scheduler.execute(task)
+        }
+    }
+
+    private fun scheduleAsync(task: () -> Unit, delayMillis: Long): ScheduledFuture<*>? {
+        if (runTasksInlineForTesting && delayMillis <= 0L) {
+            task()
+            return null
+        }
+        return scheduler.schedule(task, delayMillis.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
     }
 
     private fun flushQueue(reason: String) {

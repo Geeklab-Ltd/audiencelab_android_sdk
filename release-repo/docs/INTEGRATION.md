@@ -24,7 +24,7 @@ GitHub Packages example:
 ```kotlin
 repositories {
     maven {
-        url = uri("https://maven.pkg.github.com/Geeklab-Ltd/audiencelab_android_sdk")
+        url = uri("https://maven.pkg.github.com/geeklab-ltd/audiencelab_android_sdk")
         credentials {
             username = providers.gradleProperty("gpr.user").orNull
             password = providers.gradleProperty("gpr.key").orNull
@@ -97,22 +97,6 @@ AudienceLabSDK.initialize(
 )
 ```
 
-## Development-Mode Handling
-
-- Backend payload field `dev` must be controlled by the integrating app.
-- Recommended setup:
-
-```kotlin
-AudienceLabOptions(
-    isDevelopmentMode = BuildConfig.DEBUG,
-    isDebugEnabled = BuildConfig.DEBUG
-)
-```
-
-- If `isDevelopmentMode` is omitted and you initialize with `Context`, the SDK falls back to the host app debuggable flag.
-- `isDevelopmentMode = true` means events are sent as development events.
-- `isDevelopmentMode = false` means events are sent as release/production events.
-
 ## Sending Events
 
 Initialize the SDK before sending events:
@@ -179,7 +163,3 @@ After integration, verify:
 4. a creative token is obtained
 5. queued webhook events flush after token availability
 6. ad, purchase, and custom events can be sent without runtime errors
-
-## Support Surface
-
-This repository distributes release artifacts and integration docs only. SDK source code is not published here.

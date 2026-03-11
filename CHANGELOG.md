@@ -2,7 +2,7 @@
 
 All notable changes to this package are documented in this file.
 
-## [1.1.5] - 2026-03-11
+## [1.1.6] - 2026-03-11
 
 ### Added
 
@@ -13,14 +13,13 @@ All notable changes to this package are documented in this file.
 - Session lifecycle tracking with 30-minute timeout, start/end events, duration payloads, and background-timeout rollover.
 - Daily retention tracking with first-launch day `0` and `backfill_day` based on the previous retention-day value.
 - Persisted offline queue with replay on init, foreground, connectivity restoration, and token availability.
-- Request debug listener support plus request and queue log sample-app screens.
+- Request debug listener support for inspecting SDK network behavior.
 - Identity diagnostics APIs, token diagnostics APIs, and device diagnostics APIs.
 - Optional reflective Play Services lookup for GAID and App Set ID when those classes already exist in the host app.
 
 ### Changed
 
 - SDK version track moved from bootstrap `0.1.0` to parity target `1.1.x`.
-- Backend `dev` handling is now controlled by the integrating app through `AudienceLabOptions.isDevelopmentMode` or host-app debuggable detection, rather than the SDK AAR build type.
 - Webhook delivery is gated on a valid creative token; queued events are no longer sent with placeholder or missing tokens.
 - Ad and purchase `value` fields are emitted as numeric values.
 - Reserved underscore-prefixed whitelisted properties are preserved across clear/unset operations.
@@ -31,7 +30,4 @@ All notable changes to this package are documented in this file.
 ### Added
 
 - Initial Android Native SDK scaffold in Kotlin.
-- Library module (`audiencelab-sdk`) with basic initialization API.
-- Sample app module (`sample-app`) consuming the SDK.
-- Basic JVM unit tests for initialization behavior.
-- CI workflow to run tests, assemble AAR, and build sample app.
+- Basic initialization API and event tracking support.

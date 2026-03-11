@@ -9,6 +9,9 @@ version = providers.gradleProperty("SDK_VERSION").get()
 
 val sdkVersion = version.toString()
 val versionedReleaseAarName = "audiencelab-sdk-release-$sdkVersion.aar"
+val githubRepositoryForPackages = System.getenv("GITHUB_REPOSITORY")?.trim()?.lowercase()
+val githubActorForPackages = System.getenv("GITHUB_ACTOR")?.trim()
+val githubTokenForPackages = System.getenv("GITHUB_TOKEN")?.trim()
 
 android {
     namespace = "app.geeklab.audiencelab.sdk"
@@ -99,6 +102,16 @@ afterEvaluate {
                     scm {
                         url.set(providers.gradleProperty("POM_SCM_URL"))
                     }
+
+                    if (!githubRepositoryForPackages.isNullOrBlank()) {
+                        withXml {
+                            val node = asNode()
+                            val distributionManagement = node.appendNode("distributionManagement")
+                            val repository = distributionManagement.appendNode("repository")
+                            repository.appendNode("id", "github")
+                            repository.appendNode("url", "https://maven.pkg.github.com/$githubRepositoryForPackages")
+                        }
+                    }
                 }
             }
         }
@@ -106,16 +119,16 @@ afterEvaluate {
         repositories {
             mavenLocal()
 
-            val githubRepository = System.getenv("GITHUB_REPOSITORY")
-            val githubActor = System.getenv("GITHUB_ACTOR")
-            val githubToken = System.getenv("GITHUB_TOKEN")
-            if (!githubRepository.isNullOrBlank() && !githubActor.isNullOrBlank() && !githubToken.isNullOrBlank()) {
+            if (!githubRepositoryForPackages.isNullOrBlank() &&
+                !githubActorForPackages.isNullOrBlank() &&
+                !githubTokenForPackages.isNullOrBlank()
+            ) {
                 maven {
                     name = "GitHubPackages"
-                    url = uri("https://maven.pkg.github.com/$githubRepository")
+                    url = uri("https://maven.pkg.github.com/$githubRepositoryForPackages")
                     credentials {
-                        username = githubActor
-                        password = githubToken
+                        username = githubActorForPackages
+                        password = githubTokenForPackages
                     }
                 }
             }

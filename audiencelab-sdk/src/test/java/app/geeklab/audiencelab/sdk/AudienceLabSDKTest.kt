@@ -20,6 +20,7 @@ class AudienceLabSDKTest {
     @Before
     fun setUp() {
         AudienceLabSDK.resetForTesting(clearPersistence = true)
+        AudienceLabSDK.setRunTasksInlineForTesting(true)
     }
 
     @Test
@@ -491,16 +492,15 @@ class AudienceLabSDKTest {
     @Test
     fun flushQueue_keepsWebhookEventsQueued_whenFetchTokenReturnsUnauthorized() {
         AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.clearQueueForTesting()
         AudienceLabSDK.sendCustomEvent("queued_until_token")
 
         val calledPaths = mutableListOf<String>()
-        val fetchAttempted = CountDownLatch(1)
         AudienceLabSDK.setApiClientForTesting(
             object : ApiClient {
                 override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
                     calledPaths.add(path)
                     if (path == Endpoints.FETCH_TOKEN) {
-                        fetchAttempted.countDown()
                         callback(
                             Result.failure(
                                 NetworkError.HttpFailure(
@@ -518,25 +518,23 @@ class AudienceLabSDKTest {
 
         invokePrivateSdkMethod("flushQueue", "test_unauthorized")
 
-        assertTrue(fetchAttempted.await(2, TimeUnit.SECONDS))
         assertEquals(listOf(Endpoints.FETCH_TOKEN), calledPaths)
-        assertEquals(3, AudienceLabSDK.getQueueSize())
+        assertEquals(1, AudienceLabSDK.getQueueSize())
     }
 
     @Test
     fun flushQueue_dispatchesWebhook_afterCreativeTokenBecomesAvailable() {
         AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.clearQueueForTesting()
         AudienceLabSDK.sendCustomEvent("queued_then_delivered")
         AudienceLabSDK.handleDeepLink("myapp://open?creative_token=real-token-123")
 
         val webhookBodies = mutableListOf<Map<String, Any?>>()
-        val webhookDelivered = CountDownLatch(3)
         AudienceLabSDK.setApiClientForTesting(
             object : ApiClient {
                 override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
                     if (path == Endpoints.WEBHOOK) {
                         webhookBodies.add(body)
-                        webhookDelivered.countDown()
                     }
                     callback(Result.success(emptyMap()))
                 }
@@ -545,16 +543,11 @@ class AudienceLabSDKTest {
 
         invokePrivateSdkMethod("flushQueue", "test_ready")
 
-        assertTrue(webhookDelivered.await(2, TimeUnit.SECONDS))
         assertEquals(0, AudienceLabSDK.getQueueSize())
-        assertTrue(webhookBodies.isNotEmpty())
-        assertTrue(webhookBodies.all { it["creativeToken"] == "real-token-123" })
-        assertTrue(
-            webhookBodies.any { body ->
-                body["type"] == "custom" &&
-                    (body["payload"] as? Map<*, *>)?.get("en") == "queued_then_delivered"
-            }
-        )
+        assertEquals(1, webhookBodies.size)
+        assertEquals("real-token-123", webhookBodies.single()["creativeToken"])
+        assertEquals("custom", webhookBodies.single()["type"])
+        assertEquals("queued_then_delivered", (webhookBodies.single()["payload"] as? Map<*, *>)?.get("en"))
     }
 
     @Test
