@@ -530,11 +530,13 @@ class AudienceLabSDKTest {
         AudienceLabSDK.handleDeepLink("myapp://open?creative_token=real-token-123")
 
         val webhookBodies = mutableListOf<Map<String, Any?>>()
+        val webhookDelivered = CountDownLatch(1)
         AudienceLabSDK.setApiClientForTesting(
             object : ApiClient {
                 override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
                     if (path == Endpoints.WEBHOOK) {
                         webhookBodies.add(body)
+                        webhookDelivered.countDown()
                     }
                     callback(Result.success(emptyMap()))
                 }
@@ -543,6 +545,7 @@ class AudienceLabSDKTest {
 
         invokePrivateSdkMethod("flushQueue", "test_ready")
 
+        assertTrue(webhookDelivered.await(2, TimeUnit.SECONDS))
         assertEquals(1, webhookBodies.size)
         assertEquals("real-token-123", webhookBodies.first()["creativeToken"])
     }
