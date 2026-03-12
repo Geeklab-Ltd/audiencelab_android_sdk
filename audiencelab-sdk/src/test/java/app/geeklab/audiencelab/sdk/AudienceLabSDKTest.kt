@@ -301,6 +301,48 @@ class AudienceLabSDKTest {
     }
 
     @Test
+    fun reservedWhitelistedKeys_areRejectedFromDeveloperSetters() {
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        AudienceLabSDK.setUserProperty("_network", "meta", scope = UserPropertyScope.WHITELISTED)
+
+        assertNull(AudienceLabSDK.getWhitelistedUserProperties()["_network"])
+    }
+
+    @Test
+    fun fetchCreativeToken_mergesServerWhitelistedProperties() {
+        val latch = CountDownLatch(1)
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.setUserProperty("country", "FI", scope = UserPropertyScope.WHITELISTED)
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    callback(
+                        Result.success(
+                            mapOf(
+                                "token" to "server-token-123",
+                                "wp" to mapOf(
+                                    "_network" to "meta",
+                                    "campaign" to "spring_launch"
+                                )
+                            )
+                        )
+                    )
+                    latch.countDown()
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "wp_merge_test")
+
+        assertTrue(latch.await(2, TimeUnit.SECONDS))
+        val properties = AudienceLabSDK.getWhitelistedUserProperties()
+        assertEquals("FI", properties["country"])
+        assertEquals("meta", properties["_network"])
+        assertEquals("spring_launch", properties["campaign"])
+    }
+
+    @Test
     fun reservedWhitelistedProperties_surviveUnsetAndClear() {
         val backing = mutableMapOf<String, Any?>()
         val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))

@@ -165,6 +165,8 @@ AudienceLabSDK.sendCustomEvent(
 
 The SDK supports both whitelisted (`wp`) and blacklisted (`bp`) user properties.
 
+Whitelisted properties returned by the creative-token response are stored automatically by the SDK. Reserved whitelisted keys starting with `_` are AudienceLab-managed and cannot be set manually from the app.
+
 For blacklisted `email` and `phone` values, the Android SDK automatically SHA-256 hashes the normalized value before it is stored or sent.
 
 ## Version Information
