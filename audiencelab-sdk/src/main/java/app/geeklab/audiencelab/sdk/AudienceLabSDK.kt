@@ -30,6 +30,7 @@ import app.geeklab.audiencelab.sdk.internal.storage.SharedPreferencesKeyValueSto
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -50,6 +51,7 @@ object AudienceLabSDK {
     private const val SESSION_TIMEOUT_MILLIS = 30L * 60L * 1000L
     private const val MAX_QUEUE_RETRY_DELAY_MILLIS = 5L * 60L * 1000L
     private const val MAX_QUEUE_AGE_MILLIS = 24L * 60L * 60L * 1000L
+    private val hashRequiredBlacklistedKeys = setOf("email", "phone")
 
     private val deepLinkTokenKeys = listOf(
         "audiencelab_token",
@@ -594,8 +596,12 @@ object AudienceLabSDK {
     @Synchronized
     @JvmStatic
     fun setUserProperty(key: String, value: String, scope: UserPropertyScope) {
-        val normalizedKey = key.trim()
-        val normalizedValue = value.trim()
+        val normalizedKey = normalizeUserPropertyKey(key = key, scope = scope)
+        val normalizedValue = normalizeUserPropertyValue(
+            key = normalizedKey,
+            value = value,
+            scope = scope
+        )
         if (scope == UserPropertyScope.WHITELISTED && isReservedWhitelistedPropertyKey(normalizedKey)) {
             Logger.w("User property rejected: reserved whitelisted key $normalizedKey")
             return
@@ -649,7 +655,7 @@ object AudienceLabSDK {
     @Synchronized
     @JvmStatic
     fun unsetUserProperty(key: String, scope: UserPropertyScope) {
-        val normalizedKey = key.trim()
+        val normalizedKey = normalizeUserPropertyKey(key = key, scope = scope)
         if (normalizedKey.isEmpty()) {
             return
         }
@@ -989,8 +995,10 @@ object AudienceLabSDK {
                     sdkVersion = getSdkVersion(),
                     sdkType = SDK_TYPE,
                     appVersion = getAppVersion(),
+                    createdAtMillis = nowMillis(),
                     developmentMode = state.developmentMode,
                     whitelistedProperties = state.whitelistedUserProperties,
+                    blacklistedProperties = state.blacklistedUserProperties,
                     deviceInfo = deviceInfo,
                     identity = identity
                 )
@@ -1928,6 +1936,56 @@ object AudienceLabSDK {
 
     private fun isReservedWhitelistedPropertyKey(key: String): Boolean {
         return key.startsWith("_")
+    }
+
+    private fun normalizeUserPropertyKey(key: String, scope: UserPropertyScope): String {
+        val normalized = key.trim()
+        return if (scope == UserPropertyScope.BLACKLISTED && requiresHashedBlacklistedValue(normalized)) {
+            normalized.lowercase(Locale.US)
+        } else {
+            normalized
+        }
+    }
+
+    private fun normalizeUserPropertyValue(key: String, value: String, scope: UserPropertyScope): String {
+        val normalized = value.trim()
+        if (scope != UserPropertyScope.BLACKLISTED || !requiresHashedBlacklistedValue(key)) {
+            return normalized
+        }
+
+        val prepared = when (key.lowercase(Locale.US)) {
+            "email" -> normalizeEmailForHash(normalized)
+            "phone" -> normalizePhoneForHash(normalized)
+            else -> normalized
+        }
+        if (prepared.isEmpty()) {
+            return prepared
+        }
+        if (looksLikeSha256(prepared)) {
+            return prepared.lowercase(Locale.US)
+        }
+        return sha256(prepared)
+    }
+
+    private fun requiresHashedBlacklistedValue(key: String): Boolean {
+        return key.trim().lowercase(Locale.US) in hashRequiredBlacklistedKeys
+    }
+
+    private fun normalizeEmailForHash(value: String): String {
+        return value.trim().lowercase(Locale.US)
+    }
+
+    private fun normalizePhoneForHash(value: String): String {
+        return value.filter(Char::isDigit)
+    }
+
+    private fun looksLikeSha256(value: String): Boolean {
+        return value.length == 64 && value.all { it in '0'..'9' || it.lowercaseChar() in 'a'..'f' }
+    }
+
+    private fun sha256(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(StandardCharsets.UTF_8))
+        return bytes.joinToString(separator = "") { byte -> "%02x".format(Locale.US, byte.toInt() and 0xff) }
     }
 
     private fun isValidUserProperty(key: String, value: String): Boolean {

@@ -27,10 +27,13 @@ class EventEnvelopeMapperTest {
                     deviceName = "Pixel 8",
                     deviceModel = "Pixel 8",
                     osSystem = "Android 14",
+                    dpi = 420,
                     width = 1080,
                     height = 2400,
                     timezone = "Europe/Helsinki",
-                    utcOffsetHours = 2.0
+                    utcOffsetHours = 2.0,
+                    lowBatteryLevel = false,
+                    glEsVersion = "3.2"
                 ),
                 identity = IdentitySnapshot(
                     ga = "gaid-123",
@@ -75,10 +78,13 @@ class EventEnvelopeMapperTest {
                     deviceName = "unknown",
                     deviceModel = "unknown",
                     osSystem = "Android unknown",
+                    dpi = 0,
                     width = 0,
                     height = 0,
                     timezone = "UTC",
-                    utcOffsetHours = 0.0
+                    utcOffsetHours = 0.0,
+                    lowBatteryLevel = null,
+                    glEsVersion = null
                 ),
                 identity = IdentitySnapshot(
                     ga = null,

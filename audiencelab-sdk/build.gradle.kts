@@ -9,9 +9,9 @@ version = providers.gradleProperty("SDK_VERSION").get()
 
 val sdkVersion = version.toString()
 val versionedReleaseAarName = "audiencelab-sdk-release-$sdkVersion.aar"
-val githubRepositoryForPackages = System.getenv("GITHUB_REPOSITORY")?.trim()?.lowercase()
-val githubActorForPackages = System.getenv("GITHUB_ACTOR")?.trim()
-val githubTokenForPackages = System.getenv("GITHUB_TOKEN")?.trim()
+val packageRepositoryForPublishing = System.getenv("AUDIENCELAB_PACKAGE_REPOSITORY")?.trim()?.lowercase()
+val packageUsernameForPublishing = System.getenv("AUDIENCELAB_PACKAGE_USERNAME")?.trim()
+val packageTokenForPublishing = System.getenv("AUDIENCELAB_PACKAGE_TOKEN")?.trim()
 
 android {
     namespace = "app.geeklab.audiencelab.sdk"
@@ -103,13 +103,13 @@ afterEvaluate {
                         url.set(providers.gradleProperty("POM_SCM_URL"))
                     }
 
-                    if (!githubRepositoryForPackages.isNullOrBlank()) {
+                    if (!packageRepositoryForPublishing.isNullOrBlank()) {
                         withXml {
                             val node = asNode()
                             val distributionManagement = node.appendNode("distributionManagement")
                             val repository = distributionManagement.appendNode("repository")
                             repository.appendNode("id", "github")
-                            repository.appendNode("url", "https://maven.pkg.github.com/$githubRepositoryForPackages")
+                            repository.appendNode("url", "https://maven.pkg.github.com/$packageRepositoryForPublishing")
                         }
                     }
                 }
@@ -119,16 +119,16 @@ afterEvaluate {
         repositories {
             mavenLocal()
 
-            if (!githubRepositoryForPackages.isNullOrBlank() &&
-                !githubActorForPackages.isNullOrBlank() &&
-                !githubTokenForPackages.isNullOrBlank()
+            if (!packageRepositoryForPublishing.isNullOrBlank() &&
+                !packageUsernameForPublishing.isNullOrBlank() &&
+                !packageTokenForPublishing.isNullOrBlank()
             ) {
                 maven {
                     name = "GitHubPackages"
-                    url = uri("https://maven.pkg.github.com/$githubRepositoryForPackages")
+                    url = uri("https://maven.pkg.github.com/$packageRepositoryForPublishing")
                     credentials {
-                        username = githubActorForPackages
-                        password = githubTokenForPackages
+                        username = packageUsernameForPublishing
+                        password = packageTokenForPublishing
                     }
                 }
             }

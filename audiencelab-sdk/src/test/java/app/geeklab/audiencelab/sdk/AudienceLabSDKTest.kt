@@ -267,6 +267,40 @@ class AudienceLabSDKTest {
     }
 
     @Test
+    fun blacklistedEmailAndPhone_areHashedBeforePersisting() {
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        AudienceLabSDK.setUserProperty("Email", " User@Example.com ", scope = UserPropertyScope.BLACKLISTED)
+        AudienceLabSDK.setUserProperty("phone", "+358 40 123 4567 890", scope = UserPropertyScope.BLACKLISTED)
+
+        val blacklisted = AudienceLabSDK.getBlacklistedUserProperties()
+        assertEquals(
+            "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514",
+            blacklisted["email"]
+        )
+        assertEquals(
+            "5ae9302068031b93b67fdf05fa3e3410e31dc227c12bfbed09ff764e17c7690e",
+            blacklisted["phone"]
+        )
+    }
+
+    @Test
+    fun blacklistedEmailAndPhone_keepPreHashedValuesNormalized() {
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        AudienceLabSDK.setUserProperty(
+            "email",
+            "B4C9A289323B21A01C3E940F150EB9B8C542587F1ABFD8F0E1CC1FFC5E475514",
+            scope = UserPropertyScope.BLACKLISTED
+        )
+
+        assertEquals(
+            "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514",
+            AudienceLabSDK.getBlacklistedUserProperties()["email"]
+        )
+    }
+
+    @Test
     fun reservedWhitelistedProperties_surviveUnsetAndClear() {
         val backing = mutableMapOf<String, Any?>()
         val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))

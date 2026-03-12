@@ -62,7 +62,7 @@ Example:
 
 ```kotlin
 dependencies {
-    implementation(files("libs/audiencelab-sdk-release-1.1.6.aar"))
+    implementation(files("libs/audiencelab-sdk-release-1.1.7.aar"))
 }
 ```
 
@@ -74,7 +74,7 @@ Example dependency:
 
 ```kotlin
 dependencies {
-    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.6")
+    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.7")
 }
 ```
 
@@ -228,6 +228,36 @@ AudienceLabSDK.sendAdEvent(
     channel = "rewarded",
     value = 0.75,
     currency = "USD"
+)
+```
+
+## User Properties
+
+The SDK supports both whitelisted (`wp`) and blacklisted (`bp`) user properties through:
+
+- `setUserProperty(key, value, scope)`
+- `unsetUserProperty(key, scope)`
+- `clearUserProperties(scope)`
+- `getWhitelistedUserProperties()`
+- `getBlacklistedUserProperties()`
+
+Example:
+
+```kotlin
+AudienceLabSDK.setUserProperty(
+    key = "external_id",
+    value = "user-123",
+    scope = UserPropertyScope.BLACKLISTED
+)
+```
+
+For blacklisted `email` and `phone` keys, the Android SDK automatically normalizes and SHA-256 hashes the value before it is persisted or sent.
+
+```kotlin
+AudienceLabSDK.setUserProperty(
+    key = "email",
+    value = "player@example.com",
+    scope = UserPropertyScope.BLACKLISTED
 )
 ```
 
