@@ -153,13 +153,51 @@ AudienceLabSDK.sendCustomEvent(
 )
 ```
 
+## User Properties
+
+The Android SDK supports both:
+
+- whitelisted properties (`wp`)
+- blacklisted properties (`bp`)
+
+Use `UserPropertyScope.BLACKLISTED` for values that should only be forwarded downstream.
+
+```kotlin
+AudienceLabSDK.setUserProperty(
+    key = "external_id",
+    value = "user-123",
+    scope = UserPropertyScope.BLACKLISTED
+)
+```
+
+Special handling for `bp`:
+
+- `email`
+- `phone`
+
+When either of those keys is set as a blacklisted property, the Android SDK automatically normalizes and SHA-256 hashes the value before persisting or sending it.
+
+```kotlin
+AudienceLabSDK.setUserProperty(
+    key = "email",
+    value = "player@example.com",
+    scope = UserPropertyScope.BLACKLISTED
+)
+
+AudienceLabSDK.setUserProperty(
+    key = "phone",
+    value = "+358 40 123 4567",
+    scope = UserPropertyScope.BLACKLISTED
+)
+```
+
 ## Minimal Verification
 
 After integration, verify:
 
 1. the app builds successfully
 2. `AudienceLabSDK.initialize(...)` succeeds
-3. `/fetch-token` succeeds with your API key/environment
+3. creative token retrieval succeeds with your API key/environment
 4. a creative token is obtained
-5. queued webhook events flush after token availability
+5. queued events flush after token availability
 6. ad, purchase, and custom events can be sent without runtime errors

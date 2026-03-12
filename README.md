@@ -48,7 +48,7 @@ Add the dependency:
 
 ```kotlin
 dependencies {
-    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.6")
+    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.7")
 }
 ```
 
@@ -63,13 +63,13 @@ gpr.key=YOUR_GITHUB_PACKAGES_TOKEN
 
 If you received a release AAR instead of package-feed access:
 
-1. Download `audiencelab-sdk-release-1.1.6.aar`
+1. Download `audiencelab-sdk-release-1.1.7.aar`
 2. Place it in your app project, for example `app/libs/`
 3. Add it as a file dependency
 
 ```kotlin
 dependencies {
-    implementation(files("libs/audiencelab-sdk-release-1.1.6.aar"))
+    implementation(files("libs/audiencelab-sdk-release-1.1.7.aar"))
 }
 ```
 
@@ -109,7 +109,7 @@ After configuration:
 
 1. Build your Android app
 2. Launch the app and verify SDK initialization succeeds
-3. Confirm `/fetch-token` succeeds and a creative token is received
+3. Confirm the SDK receives a creative token successfully
 4. Verify events are sent without runtime errors
 
 ## Event Tracking
@@ -161,11 +161,17 @@ AudienceLabSDK.sendCustomEvent(
 )
 ```
 
+## User Properties
+
+The SDK supports both whitelisted (`wp`) and blacklisted (`bp`) user properties.
+
+For blacklisted `email` and `phone` values, the Android SDK automatically SHA-256 hashes the normalized value before it is stored or sent.
+
 ## Version Information
 
 Current SDK line:
 
-- SDK version: `1.1.6`
+- SDK version: `1.1.7`
 - minimum SDK: `23`
 - target SDK: `36`
 

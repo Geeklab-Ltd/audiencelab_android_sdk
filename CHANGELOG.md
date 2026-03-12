@@ -2,13 +2,13 @@
 
 All notable changes to this package are documented in this file.
 
-## [1.1.6] - 2026-03-11
+## [1.1.7] - 2026-03-12
 
 ### Added
 
 - Full parity-oriented Android public API baseline across init, toggles, events, retention, user properties, callbacks, queue inspection, and version getters.
 - `SharedPreferences`-backed persisted state for toggles, app version, creative token, cumulative counters, retention markers, session markers, and queued events.
-- `HttpURLConnection` request layer for `/fetch-token` and `/webhook`.
+- `HttpURLConnection` request layer for creative-token retrieval and event delivery.
 - Canonical backend envelope mapping using `type`, `eid`, `dk`, and `created_at`.
 - Session lifecycle tracking with 30-minute timeout, start/end events, duration payloads, and background-timeout rollover.
 - Daily retention tracking with first-launch day `0` and `backfill_day` based on the previous retention-day value.
@@ -23,7 +23,7 @@ All notable changes to this package are documented in this file.
 - Webhook delivery is gated on a valid creative token; queued events are no longer sent with placeholder or missing tokens.
 - Ad and purchase `value` fields are emitted as numeric values.
 - Reserved underscore-prefixed whitelisted properties are preserved across clear/unset operations.
-- Creative token validation now rejects blank and placeholder tokens such as `bin` across fetch-token and deep-link flows.
+- Creative token validation now rejects blank and placeholder tokens such as `bin` across token-retrieval and deep-link flows.
 
 ## [0.1.0] - 2026-03-05
 
