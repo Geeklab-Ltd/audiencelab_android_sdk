@@ -1,5 +1,6 @@
 package app.geeklab.audiencelab.sdk.internal.storage
 
+import app.geeklab.audiencelab.sdk.internal.util.CurrencyValue
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.ObjectInputStream
@@ -196,7 +197,7 @@ internal class AudienceLabStateStore(
         if (!value.isFinite() || value < 0.0) {
             return 0.0
         }
-        return value
+        return CurrencyValue.normalize(value)
     }
 
     private fun sanitizeDay(day: Int?): Int? {
