@@ -2,6 +2,14 @@
 
 All notable changes to this package are documented in this file.
 
+## [1.1.8] - 2026-03-17
+
+### Changed
+
+- Added top-level `retention_day` to Android webhook envelopes.
+- Normalized Android ad and purchase values using decimal-safe accumulation to prevent floating-point artifacts in `value`, `total_ad_value`, and `total_purchase_value`.
+- Added regression coverage for Android webhook envelope retention-day mapping and repeated money-value accumulation.
+
 ## [1.1.7] - 2026-03-12
 
 ### Added

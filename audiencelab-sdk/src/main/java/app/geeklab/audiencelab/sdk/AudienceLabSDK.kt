@@ -27,6 +27,7 @@ import app.geeklab.audiencelab.sdk.internal.storage.AudienceLabStateStore
 import app.geeklab.audiencelab.sdk.internal.storage.InMemoryKeyValueStore
 import app.geeklab.audiencelab.sdk.internal.storage.PersistedQueuedEvent
 import app.geeklab.audiencelab.sdk.internal.storage.SharedPreferencesKeyValueStore
+import app.geeklab.audiencelab.sdk.internal.util.CurrencyValue
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -408,7 +409,7 @@ object AudienceLabSDK {
         touchSessionMarker()
 
         val sanitizedValue = sanitizeMonetaryValue(event.value)
-        val totalAdValue = sanitizeCounter(state.totalAdValue + sanitizedValue)
+        val totalAdValue = sanitizeCounter(CurrencyValue.add(state.totalAdValue, sanitizedValue))
         state = state.copy(totalAdValue = totalAdValue)
         stateStore.setTotalAdValue(totalAdValue)
 
@@ -468,7 +469,7 @@ object AudienceLabSDK {
         val shouldIncrementTotalValue = event.status.equals("completed", ignoreCase = true) ||
             event.status.equals("success", ignoreCase = true)
         val totalPurchaseValue = if (shouldIncrementTotalValue) {
-            sanitizeCounter(state.totalPurchaseValue + sanitizedValue)
+            sanitizeCounter(CurrencyValue.add(state.totalPurchaseValue, sanitizedValue))
         } else {
             state.totalPurchaseValue
         }
@@ -1495,6 +1496,7 @@ object AudienceLabSDK {
                     type = event.type,
                     payload = event.payload,
                     creativeToken = creativeToken,
+                    retentionDay = currentRetentionDay(),
                     sdkVersion = getSdkVersion(),
                     sdkType = SDK_TYPE,
                     appVersion = getAppVersion(),
@@ -2029,14 +2031,14 @@ object AudienceLabSDK {
         if (!value.isFinite() || value < 0.0) {
             return 0.0
         }
-        return value
+        return CurrencyValue.normalize(value)
     }
 
     private fun sanitizeMonetaryValue(value: Double): Double {
         if (!value.isFinite()) {
             return 0.0
         }
-        return value
+        return CurrencyValue.normalize(value)
     }
 
     private fun emptyIdentityDebugSnapshot(): IdentityDebugSnapshot {
@@ -2090,6 +2092,11 @@ object AudienceLabSDK {
 
     private fun utcEpochDay(nowMillis: Long = nowMillis()): Int {
         return (nowMillis / MILLIS_PER_DAY).toInt()
+    }
+
+    private fun currentRetentionDay(nowMillis: Long = nowMillis()): Int? {
+        val firstDay = state.firstRetentionDay ?: return null
+        return (utcEpochDay(nowMillis) - firstDay).coerceAtLeast(0)
     }
 
     private data class State(

@@ -15,6 +15,7 @@ class EventEnvelopeMapperTest {
                 type = "custom.ad",
                 payload = mapOf("ad_id" to "placement_1"),
                 creativeToken = "token-123",
+                retentionDay = 5,
                 sdkVersion = "1.1.0",
                 sdkType = "native_android",
                 appVersion = "2.5.1",
@@ -49,6 +50,7 @@ class EventEnvelopeMapperTest {
         assertEquals("token-123", envelope["creativeToken"])
         assertEquals("evt_test_1", envelope["eid"])
         assertEquals("2023-11-14 22:13:20", envelope["created_at"])
+        assertEquals(5, envelope["retention_day"])
         assertEquals("gaid-123", envelope["ga"])
         assertEquals("asid-456", envelope["asid"])
         assertEquals("aid-789", envelope["aid"])
@@ -66,6 +68,7 @@ class EventEnvelopeMapperTest {
                 type = "custom",
                 payload = mapOf("en" to "level_complete"),
                 creativeToken = "organic#gp",
+                retentionDay = null,
                 sdkVersion = "1.1.0",
                 sdkType = "native_android",
                 appVersion = "unknown",
@@ -104,5 +107,6 @@ class EventEnvelopeMapperTest {
         assertFalse(envelope.containsKey("dk"))
         assertFalse(envelope.containsKey("wp"))
         assertFalse(envelope.containsKey("bp"))
+        assertFalse(envelope.containsKey("retention_day"))
     }
 }

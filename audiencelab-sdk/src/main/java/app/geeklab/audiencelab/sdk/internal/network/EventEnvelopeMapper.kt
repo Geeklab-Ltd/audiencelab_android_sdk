@@ -12,6 +12,7 @@ internal data class EnvelopeBuildInput(
     val type: String,
     val payload: Map<String, Any?>,
     val creativeToken: String,
+    val retentionDay: Int?,
     val sdkVersion: String,
     val sdkType: String,
     val appVersion: String,
@@ -49,6 +50,10 @@ internal object EventEnvelopeMapper {
             "utc_offset" to input.deviceInfo.utcOffsetHours,
             "eid" to input.eventId
         )
+
+        if (input.retentionDay != null) {
+            envelope["retention_day"] = input.retentionDay
+        }
 
         if (input.identity.ga?.isNotBlank() == true) {
             envelope["ga"] = input.identity.ga

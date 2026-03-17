@@ -144,6 +144,82 @@ class AudienceLabSDKTest {
     }
 
     @Test
+    fun purchaseTotals_accumulateWithoutFloatingPointArtifacts() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        AudienceLabSDK.sendPurchaseEvent(
+            itemId = "starter.pack",
+            itemName = "Starter Pack",
+            value = 4.99,
+            currency = "USD",
+            status = "success"
+        )
+        AudienceLabSDK.sendPurchaseEvent(
+            itemId = "starter.pack",
+            itemName = "Starter Pack",
+            value = 4.99,
+            currency = "USD",
+            status = "success"
+        )
+
+        val purchasePayloads = store.loadSnapshot().queuedEvents
+            .filter { it.type == "custom.purchase" }
+            .map { it.payload }
+
+        assertEquals(2, purchasePayloads.size)
+        assertEquals(4.99, (purchasePayloads[0]["value"] as Number).toDouble(), 0.0)
+        assertEquals(4.99, (purchasePayloads[0]["total_purchase_value"] as Number).toDouble(), 0.0)
+        assertEquals(9.98, (purchasePayloads[1]["total_purchase_value"] as Number).toDouble(), 0.0)
+        assertEquals(9.98, AudienceLabSDK.getTotalPurchaseValue(), 0.0)
+    }
+
+    @Test
+    fun adTotals_accumulateWithoutFloatingPointArtifacts() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        AudienceLabSDK.sendAdEvent(
+            adId = "ad-1",
+            name = "rewarded",
+            source = "admob",
+            watchTime = 30.0,
+            reward = true,
+            mediaSource = "network-a",
+            channel = "gameplay",
+            value = 0.75,
+            currency = "USD"
+        )
+        AudienceLabSDK.sendAdEvent(
+            adId = "ad-2",
+            name = "rewarded",
+            source = "admob",
+            watchTime = 30.0,
+            reward = true,
+            mediaSource = "network-a",
+            channel = "gameplay",
+            value = 0.75,
+            currency = "USD"
+        )
+
+        val adPayloads = store.loadSnapshot().queuedEvents
+            .filter { it.type == "custom.ad" }
+            .map { it.payload }
+
+        assertEquals(2, adPayloads.size)
+        assertEquals(0.75, (adPayloads[0]["value"] as Number).toDouble(), 0.0)
+        assertEquals(0.75, (adPayloads[0]["total_ad_value"] as Number).toDouble(), 0.0)
+        assertEquals(1.5, (adPayloads[1]["total_ad_value"] as Number).toDouble(), 0.0)
+        assertEquals(1.5, AudienceLabSDK.getTotalAdValue(), 0.0)
+    }
+
+    @Test
     fun adAndPurchaseValues_areStoredAsNumbersInQueuedPayloads() {
         val backing = mutableMapOf<String, Any?>()
         val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
