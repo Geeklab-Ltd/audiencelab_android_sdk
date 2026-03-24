@@ -488,25 +488,77 @@ class AudienceLabSDKTest {
             currency = "USD",
             status = "success"
         )
-        AudienceLabSDK.setSdkEnabled(false)
-        AudienceLabSDK.toggleMetricsCollection(false)
         AudienceLabSDK.handleDeepLink("myapp://open?creative_token=persisted-token")
-        AudienceLabSDK.sendUserMetrics()
 
         AudienceLabSDK.resetForTesting(clearPersistence = false)
         AudienceLabSDK.setStateStoreForTesting(store)
-        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.initialize(
+            apiKey = "test-api-key-123",
+            options = AudienceLabOptions(
+                appVersion = "1.2.3",
+                isDebugEnabled = true
+            )
+        )
 
-        assertFalse(AudienceLabSDK.getIsSDKEnabled())
-        assertFalse(AudienceLabSDK.getIsMetricsCollection())
+        assertTrue(AudienceLabSDK.getIsSDKEnabled())
+        assertTrue(AudienceLabSDK.getIsMetricsCollection())
         assertTrue(AudienceLabSDK.getIsDebugEnabled())
         assertEquals("1.2.3", AudienceLabSDK.getAppVersion())
         assertEquals("persisted-token", AudienceLabSDK.getCreativeToken())
         assertEquals(2.5, AudienceLabSDK.getTotalAdValue(), 0.0001)
         assertEquals(4.99, AudienceLabSDK.getTotalPurchaseValue(), 0.0001)
+    }
 
-        AudienceLabSDK.sendUserMetrics()
-        assertEquals(4, AudienceLabSDK.getQueueSize())
+    @Test
+    fun initialize_reEnablesSDK_afterPreviouslyDisabled() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.setSdkEnabled(false)
+        AudienceLabSDK.toggleMetricsCollection(false)
+        assertFalse(AudienceLabSDK.getIsSDKEnabled())
+        assertFalse(AudienceLabSDK.getIsMetricsCollection())
+
+        AudienceLabSDK.resetForTesting(clearPersistence = false)
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.initialize(
+            apiKey = "test-api-key-123",
+            options = AudienceLabOptions(isSdkEnabled = true, isMetricsEnabled = true)
+        )
+
+        assertTrue(AudienceLabSDK.getIsSDKEnabled())
+        assertTrue(AudienceLabSDK.getIsMetricsCollection())
+    }
+
+    @Test
+    fun initialize_reEnablesSDK_withDefaultOptions() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.setSdkEnabled(false)
+        AudienceLabSDK.toggleMetricsCollection(false)
+
+        AudienceLabSDK.resetForTesting(clearPersistence = false)
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.initialize("test-api-key-123")
+
+        assertTrue(AudienceLabSDK.getIsSDKEnabled())
+        assertTrue(AudienceLabSDK.getIsMetricsCollection())
+    }
+
+    @Test
+    fun initialize_respectsExplicitlyDisabledOptions() {
+        AudienceLabSDK.initialize(
+            apiKey = "test-api-key-123",
+            options = AudienceLabOptions(isSdkEnabled = false, isMetricsEnabled = false)
+        )
+
+        assertFalse(AudienceLabSDK.getIsSDKEnabled())
+        assertFalse(AudienceLabSDK.getIsMetricsCollection())
     }
 
     @Test

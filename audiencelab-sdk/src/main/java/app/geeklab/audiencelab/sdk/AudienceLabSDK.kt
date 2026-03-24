@@ -261,6 +261,12 @@ object AudienceLabSDK {
         refreshIdentityDebugState(allowAutoResolve = false)
     }
 
+    /**
+     * Sets the Google Advertising ID (GAID) manually.
+     *
+     * Can be called before or after [initialize]. When called before, the ID is
+     * included in the very first token fetch and event dispatch.
+     */
     @Synchronized
     @JvmStatic
     fun setAdvertisingId(gaid: String?) {
@@ -275,6 +281,12 @@ object AudienceLabSDK {
         refreshIdentityDebugState(allowAutoResolve = false)
     }
 
+    /**
+     * Sets the App Set ID manually.
+     *
+     * Can be called before or after [initialize]. When called before, the ID is
+     * included in the very first token fetch and event dispatch.
+     */
     @Synchronized
     @JvmStatic
     fun setAppSetId(appSetId: String?) {
@@ -856,11 +868,9 @@ object AudienceLabSDK {
             context = applicationContext,
             fallback = snapshot.appVersion
         )
-        val (sdkEnabled, metricsEnabled, debugEnabled) = if (snapshot.hasStoredConfig) {
-            Triple(snapshot.sdkEnabled, snapshot.metricsEnabled, snapshot.debugEnabled)
-        } else {
-            Triple(options.isSdkEnabled, options.isMetricsEnabled, options.isDebugEnabled)
-        }
+        val sdkEnabled = options.isSdkEnabled
+        val metricsEnabled = options.isMetricsEnabled
+        val debugEnabled = options.isDebugEnabled
         val baseUrl = resolveBaseUrl(options)
         val creativeToken = normalizeValidToken(snapshot.creativeToken)
         val developmentMode = resolveDevelopmentMode(
