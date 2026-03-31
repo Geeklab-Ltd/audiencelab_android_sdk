@@ -2,6 +2,25 @@
 
 All notable changes to this package are documented in this file.
 
+## [1.1.9] - 2026-03-24
+
+### Fixed
+
+- `initialize` now always applies `AudienceLabOptions` values for `sdkEnabled`, `metricsEnabled`, and `debugEnabled` instead of reading previously persisted state. Calling `initialize` with `isSdkEnabled = true` after a prior `setSDKEnabled(false)` now correctly re-enables the SDK.
+
+### Changed
+
+- Added KDoc on `setAdvertisingId` and `setAppSetId` clarifying they can be called before or after `initialize`; calling before ensures inclusion in the first `/fetch-token` request.
+- Queue persistence (`ObjectOutputStream` serialization and `SharedPreferences` write) is now dispatched to a dedicated background thread on every event call. This removes the serialization cost from the calling thread, ensuring event APIs (`sendAdEvent`, `sendPurchaseEvent`, `sendCustomEvent`) are non-blocking regardless of queue size.
+
+## [1.1.8] - 2026-03-17
+
+### Changed
+
+- Added top-level `retention_day` to Android webhook envelopes.
+- Normalized Android ad and purchase values using decimal-safe accumulation to prevent floating-point artifacts in `value`, `total_ad_value`, and `total_purchase_value`.
+- Added regression coverage for Android webhook envelope retention-day mapping and repeated money-value accumulation.
+
 ## [1.1.7] - 2026-03-12
 
 ### Added

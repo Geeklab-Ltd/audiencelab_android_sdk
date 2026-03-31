@@ -170,6 +170,10 @@ AudienceLabSDK.setUserProperty(
 )
 ```
 
+Whitelisted properties can also be returned by the creative-token response. When that happens, the SDK stores and reuses them automatically.
+
+Keys starting with `_` are reserved for AudienceLab-managed whitelisted properties such as `_network`. Those keys are accepted from the backend response, but blocked from manual developer setters.
+
 Special handling for `bp`:
 
 - `email`
