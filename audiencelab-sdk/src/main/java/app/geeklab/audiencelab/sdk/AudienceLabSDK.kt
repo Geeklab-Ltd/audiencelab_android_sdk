@@ -34,6 +34,7 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
@@ -141,6 +142,7 @@ object AudienceLabSDK {
     private var runTasksInlineForTesting: Boolean = false
 
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+    private val persistenceExecutor: Executor = Executors.newSingleThreadExecutor()
 
     @Synchronized
     @JvmStatic
@@ -1453,6 +1455,14 @@ object AudienceLabSDK {
         }
     }
 
+    private fun executePersistAsync(task: () -> Unit) {
+        if (runTasksInlineForTesting) {
+            task()
+        } else {
+            persistenceExecutor.execute(task)
+        }
+    }
+
     private fun scheduleAsync(task: () -> Unit, delayMillis: Long): ScheduledFuture<*>? {
         if (runTasksInlineForTesting && delayMillis <= 0L) {
             task()
@@ -1613,7 +1623,7 @@ object AudienceLabSDK {
                 queuedAtMillis = event.queuedAtMillis
             )
         }
-        stateStore.setQueuedEvents(persisted)
+        executePersistAsync { stateStore.setQueuedEvents(persisted) }
     }
 
     private fun mapPersistedQueuedEvent(persisted: PersistedQueuedEvent, nowMillis: Long): QueuedEvent? {
