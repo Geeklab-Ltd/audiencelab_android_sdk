@@ -821,7 +821,6 @@ object AudienceLabSDK {
         cancelScheduledTasks()
         unregisterRuntimeSignals()
         nowProvider = { System.currentTimeMillis() }
-        runTasksInlineForTesting = false
         PlayServicesIdentityReader.resetForTesting()
         Logger.configure(false)
     }
