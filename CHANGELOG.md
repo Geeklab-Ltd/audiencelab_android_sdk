@@ -2,6 +2,16 @@
 
 All notable changes to this package are documented in this file.
 
+## [1.1.9] - 2026-03-24
+
+### Fixed
+
+- `initialize` now always applies `AudienceLabOptions` values for `sdkEnabled`, `metricsEnabled`, and `debugEnabled` instead of reading previously persisted state. Calling `initialize` with `isSdkEnabled = true` after a prior `setSDKEnabled(false)` now correctly re-enables the SDK.
+
+### Changed
+
+- Added KDoc on `setAdvertisingId` and `setAppSetId` clarifying they can be called before or after `initialize`; calling before ensures inclusion in the first `/fetch-token` request.
+
 ## [1.1.8] - 2026-03-17
 
 ### Changed
