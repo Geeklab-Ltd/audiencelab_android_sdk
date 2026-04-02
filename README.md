@@ -48,7 +48,7 @@ Add the dependency:
 
 ```kotlin
 dependencies {
-    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.9")
+    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.10")
 }
 ```
 
@@ -63,13 +63,13 @@ gpr.key=YOUR_GITHUB_PACKAGES_TOKEN
 
 If you received a release AAR instead of package-feed access:
 
-1. Download `audiencelab-sdk-release-1.1.9.aar`
+1. Download `audiencelab-sdk-release-1.1.10.aar`
 2. Place it in your app project, for example `app/libs/`
 3. Add it as a file dependency
 
 ```kotlin
 dependencies {
-    implementation(files("libs/audiencelab-sdk-release-1.1.9.aar"))
+    implementation(files("libs/audiencelab-sdk-release-1.1.10.aar"))
 }
 ```
 
@@ -86,10 +86,13 @@ AudienceLabSDK.initialize(
     apiKey = BuildConfig.AUDIENCELAB_API_KEY,
     options = AudienceLabOptions(
         isDevelopmentMode = BuildConfig.DEBUG,
-        isDebugEnabled = BuildConfig.DEBUG
+        isDebugEnabled = BuildConfig.DEBUG,
+        autoResolveGooglePlayIds = true
     )
 )
 ```
+
+If your app runs in a restricted-network environment and Google Play Services ID lookup can stall, set `autoResolveGooglePlayIds = false` and provide app-supplied GAID or App Set ID later through manual setters or custom providers. If those app-supplied values change later, call `clearIdentityCache()` before expecting the SDK to resolve them again.
 
 Recommended app-module setup:
 
@@ -173,7 +176,7 @@ For blacklisted `email` and `phone` values, the Android SDK automatically SHA-25
 
 Current SDK line:
 
-- SDK version: `1.1.9`
+- SDK version: `1.1.10`
 - minimum SDK: `23`
 - target SDK: `36`
 
