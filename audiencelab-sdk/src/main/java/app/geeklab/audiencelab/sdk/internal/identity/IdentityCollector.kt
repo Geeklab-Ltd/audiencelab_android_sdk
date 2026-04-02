@@ -28,14 +28,16 @@ internal object IdentityCollector {
         context: Context?,
         advertisingIdProvider: AdvertisingIdProvider?,
         appSetIdProvider: AppSetIdProvider?,
-        overrides: IdentityOverrides
+        overrides: IdentityOverrides,
+        googlePlayAutoResolveEnabled: Boolean = true
     ): IdentitySnapshot {
         return collectDetailed(
             context = context,
             advertisingIdProvider = advertisingIdProvider,
             appSetIdProvider = appSetIdProvider,
             overrides = overrides,
-            allowAutoResolve = true
+            allowAutoResolve = true,
+            googlePlayAutoResolveEnabled = googlePlayAutoResolveEnabled
         ).snapshot
     }
 
@@ -44,7 +46,8 @@ internal object IdentityCollector {
         advertisingIdProvider: AdvertisingIdProvider?,
         appSetIdProvider: AppSetIdProvider?,
         overrides: IdentityOverrides,
-        allowAutoResolve: Boolean
+        allowAutoResolve: Boolean,
+        googlePlayAutoResolveEnabled: Boolean = true
     ): IdentityCollectionResult {
         val aid = readAndroidId(context)
         if (context == null) {
@@ -70,7 +73,9 @@ internal object IdentityCollector {
         val providerInfo = runCatching {
             advertisingIdProvider?.getAdvertisingInfo(context)
         }.getOrNull()
-        val advertisingInfoState = if (advertisingIdProvider == null && overrides.ga == null && overrides.lat == null) {
+        val advertisingInfoState = if (!googlePlayAutoResolveEnabled) {
+            PlayServicesIdentityReader.AdvertisingInfoState(info = null, settled = true)
+        } else if (advertisingIdProvider == null && overrides.ga == null && overrides.lat == null) {
             PlayServicesIdentityReader.getAdvertisingInfoState(
                 context = context,
                 allowResolve = allowAutoResolve
@@ -78,7 +83,9 @@ internal object IdentityCollector {
         } else {
             PlayServicesIdentityReader.AdvertisingInfoState(info = null, settled = true)
         }
-        val appSetIdState = if (appSetIdProvider == null && overrides.asid == null) {
+        val appSetIdState = if (!googlePlayAutoResolveEnabled) {
+            PlayServicesIdentityReader.AppSetIdState(appSetId = null, settled = true)
+        } else if (appSetIdProvider == null && overrides.asid == null) {
             PlayServicesIdentityReader.getAppSetIdState(
                 context = context,
                 allowResolve = allowAutoResolve

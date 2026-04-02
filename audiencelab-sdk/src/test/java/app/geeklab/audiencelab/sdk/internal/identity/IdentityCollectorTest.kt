@@ -1,5 +1,6 @@
 package app.geeklab.audiencelab.sdk.internal.identity
 
+import android.content.ContextWrapper
 import com.google.android.gms.ads.identifier.AdvertisingIdClient
 import com.google.android.gms.appset.AppSet
 import org.junit.Assert.assertEquals
@@ -8,6 +9,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IdentityCollectorTest {
+    private val context = object : ContextWrapper(null) {
+        override fun getPackageName(): String = "app.geeklab.audiencelab.test"
+    }
+
     @Test
     fun collect_usesOverrides_whenContextIsUnavailable() {
         val snapshot = IdentityCollector.collect(
@@ -18,7 +23,8 @@ class IdentityCollectorTest {
                 ga = "gaid-123",
                 asid = "asid-456",
                 lat = true
-            )
+            ),
+            googlePlayAutoResolveEnabled = true
         )
 
         assertEquals("gaid-123", snapshot.ga)
@@ -38,7 +44,8 @@ class IdentityCollectorTest {
                 asid = "asid-456",
                 lat = true
             ),
-            allowAutoResolve = false
+            allowAutoResolve = false,
+            googlePlayAutoResolveEnabled = true
         )
 
         assertTrue(result.diagnostics.settled)
@@ -65,5 +72,23 @@ class IdentityCollectorTest {
         val appSetId = PlayServicesIdentityReader.readAppSetIdReflectively(context = null)
 
         assertEquals("asid-auto-456", appSetId)
+    }
+
+    @Test
+    fun collectDetailed_marksGoogleIdsSettled_whenAutoResolveDisabled() {
+        val result = IdentityCollector.collectDetailed(
+            context = context,
+            advertisingIdProvider = null,
+            appSetIdProvider = null,
+            overrides = IdentityOverrides(),
+            allowAutoResolve = true,
+            googlePlayAutoResolveEnabled = false
+        )
+
+        assertTrue(result.diagnostics.settled)
+        assertTrue(result.diagnostics.advertisingIdSettled)
+        assertTrue(result.diagnostics.appSetIdSettled)
+        assertNull(result.snapshot.ga)
+        assertNull(result.snapshot.asid)
     }
 }

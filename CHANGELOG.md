@@ -2,6 +2,16 @@
 
 All notable changes to this package are documented in this file.
 
+## [1.1.10] - 2026-04-02
+
+### Added
+
+- Added `AudienceLabOptions(autoResolveGooglePlayIds = false)` to disable automatic Google Play Services GAID and App Set ID lookup in restricted-network environments.
+
+### Changed
+
+- Event dispatch now snapshots SDK state under lock and performs device/identity collection outside the `AudienceLabSDK` monitor to avoid UI freezes when Google ID lookup or injected providers stall.
+
 ## [1.1.9] - 2026-03-24
 
 ### Fixed

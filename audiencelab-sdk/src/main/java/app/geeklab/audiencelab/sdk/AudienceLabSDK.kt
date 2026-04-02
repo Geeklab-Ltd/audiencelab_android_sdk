@@ -100,6 +100,9 @@ object AudienceLabSDK {
     private var manualLimitAdTracking: Boolean? = null
 
     @Volatile
+    private var autoResolveGooglePlayIdsEnabled: Boolean = true
+
+    @Volatile
     private var queueDispatchInProgress: Boolean = false
 
     @Volatile
@@ -797,6 +800,7 @@ object AudienceLabSDK {
         manualAdvertisingId = null
         manualAppSetId = null
         manualLimitAdTracking = null
+        autoResolveGooglePlayIdsEnabled = true
         queueDispatchInProgress = false
         cancelScheduledTasks()
         unregisterRuntimeSignals()
@@ -817,6 +821,7 @@ object AudienceLabSDK {
         tokenFetchNextAttemptAtMillis = 0L
         tokenFetchLastStatus = "idle"
         tokenFetchLastAttemptAtMillis = null
+        autoResolveGooglePlayIdsEnabled = true
         queueDispatchInProgress = false
         cancelScheduledTasks()
         unregisterRuntimeSignals()
@@ -874,6 +879,7 @@ object AudienceLabSDK {
         val debugEnabled = options.isDebugEnabled
         val baseUrl = resolveBaseUrl(options)
         val creativeToken = normalizeValidToken(snapshot.creativeToken)
+        autoResolveGooglePlayIdsEnabled = options.autoResolveGooglePlayIds
         val developmentMode = resolveDevelopmentMode(
             explicitValue = options.isDevelopmentMode,
             context = applicationContext
@@ -1176,16 +1182,14 @@ object AudienceLabSDK {
     }
 
     private fun refreshIdentityDebugState(allowAutoResolve: Boolean) {
+        val input = snapshotIdentityCollectionInput(allowAutoResolve = allowAutoResolve)
         val result = IdentityCollector.collectDetailed(
-            context = applicationContext,
-            advertisingIdProvider = advertisingIdProvider,
-            appSetIdProvider = appSetIdProvider,
-            overrides = IdentityOverrides(
-                ga = manualAdvertisingId,
-                asid = manualAppSetId,
-                lat = manualLimitAdTracking
-            ),
-            allowAutoResolve = allowAutoResolve
+            context = input.context,
+            advertisingIdProvider = input.advertisingIdProvider,
+            appSetIdProvider = input.appSetIdProvider,
+            overrides = input.overrides,
+            allowAutoResolve = input.allowAutoResolve,
+            googlePlayAutoResolveEnabled = input.googlePlayAutoResolveEnabled
         )
         updateIdentityDebugSnapshot(result.diagnostics)
     }
@@ -1505,37 +1509,48 @@ object AudienceLabSDK {
     }
 
     private fun dispatchEvent(event: QueuedEvent, client: ApiClient) {
-        val envelope = synchronized(this) {
-            val creativeToken = normalizeValidToken(state.creativeToken)
+        val snapshot = synchronized(this) {
+            val stateSnapshot = state
+            val creativeToken = normalizeValidToken(stateSnapshot.creativeToken)
             if (creativeToken == null) {
-                return@synchronized null
-            }
-            EventEnvelopeMapper.map(
-                EnvelopeBuildInput(
-                    type = event.type,
-                    payload = event.payload,
+                null
+            } else {
+                EventDispatchSnapshot(
                     creativeToken = creativeToken,
-                    retentionDay = currentRetentionDay(),
-                    sdkVersion = getSdkVersion(),
-                    sdkType = SDK_TYPE,
-                    appVersion = getAppVersion(),
-                    developmentMode = state.developmentMode,
-                    createdAtMillis = event.createdAtMillis,
-                    dedupeKey = event.dedupeKey,
-                    whitelistedProperties = state.whitelistedUserProperties,
-                    blacklistedProperties = state.blacklistedUserProperties,
-                    deviceInfo = DeviceInfoCollector.collect(applicationContext),
-                    identity = collectIdentity(),
-                    eventId = event.eventId
+                    retentionDay = currentRetentionDay(firstRetentionDay = stateSnapshot.firstRetentionDay),
+                    developmentMode = stateSnapshot.developmentMode,
+                    appVersion = stateSnapshot.appVersion ?: "unknown",
+                    whitelistedProperties = stateSnapshot.whitelistedUserProperties,
+                    blacklistedProperties = stateSnapshot.blacklistedUserProperties,
+                    context = applicationContext
                 )
-            )
+            }
         }
-        if (envelope == null) {
+        if (snapshot == null) {
             synchronized(this) {
                 queueDispatchInProgress = false
             }
             return
         }
+        val envelope = EventEnvelopeMapper.map(
+            EnvelopeBuildInput(
+                type = event.type,
+                payload = event.payload,
+                creativeToken = snapshot.creativeToken,
+                retentionDay = snapshot.retentionDay,
+                sdkVersion = getSdkVersion(),
+                sdkType = SDK_TYPE,
+                appVersion = snapshot.appVersion,
+                developmentMode = snapshot.developmentMode,
+                createdAtMillis = event.createdAtMillis,
+                dedupeKey = event.dedupeKey,
+                whitelistedProperties = snapshot.whitelistedProperties,
+                blacklistedProperties = snapshot.blacklistedProperties,
+                deviceInfo = DeviceInfoCollector.collect(snapshot.context),
+                identity = collectIdentity(),
+                eventId = event.eventId
+            )
+        )
 
         client.post(Endpoints.WEBHOOK, envelope) { result ->
             result.onSuccess {
@@ -1839,16 +1854,14 @@ object AudienceLabSDK {
     }
 
     private fun collectIdentity(): app.geeklab.audiencelab.sdk.internal.identity.IdentitySnapshot {
+        val input = snapshotIdentityCollectionInput(allowAutoResolve = true)
         val result = IdentityCollector.collectDetailed(
-            context = applicationContext,
-            advertisingIdProvider = advertisingIdProvider,
-            appSetIdProvider = appSetIdProvider,
-            overrides = IdentityOverrides(
-                ga = manualAdvertisingId,
-                asid = manualAppSetId,
-                lat = manualLimitAdTracking
-            ),
-            allowAutoResolve = true
+            context = input.context,
+            advertisingIdProvider = input.advertisingIdProvider,
+            appSetIdProvider = input.appSetIdProvider,
+            overrides = input.overrides,
+            allowAutoResolve = input.allowAutoResolve,
+            googlePlayAutoResolveEnabled = input.googlePlayAutoResolveEnabled
         )
         updateIdentityDebugSnapshot(result.diagnostics)
         return result.snapshot
@@ -2113,9 +2126,26 @@ object AudienceLabSDK {
         return (nowMillis / MILLIS_PER_DAY).toInt()
     }
 
-    private fun currentRetentionDay(nowMillis: Long = nowMillis()): Int? {
-        val firstDay = state.firstRetentionDay ?: return null
+    private fun currentRetentionDay(firstRetentionDay: Int? = state.firstRetentionDay, nowMillis: Long = nowMillis()): Int? {
+        val firstDay = firstRetentionDay ?: return null
         return (utcEpochDay(nowMillis) - firstDay).coerceAtLeast(0)
+    }
+
+    private fun snapshotIdentityCollectionInput(allowAutoResolve: Boolean): IdentityCollectionInput {
+        return synchronized(this) {
+            IdentityCollectionInput(
+                context = applicationContext,
+                advertisingIdProvider = advertisingIdProvider,
+                appSetIdProvider = appSetIdProvider,
+                overrides = IdentityOverrides(
+                    ga = manualAdvertisingId,
+                    asid = manualAppSetId,
+                    lat = manualLimitAdTracking
+                ),
+                allowAutoResolve = allowAutoResolve,
+                googlePlayAutoResolveEnabled = autoResolveGooglePlayIdsEnabled
+            )
+        }
     }
 
     private data class State(
@@ -2156,6 +2186,25 @@ object AudienceLabSDK {
         val sessionAccumulatedDurationMillis: Long = 0L,
         val sessionSegmentStartAtMillis: Long? = null,
         val lastBackgroundAtMillis: Long? = null
+    )
+
+    private data class IdentityCollectionInput(
+        val context: Context?,
+        val advertisingIdProvider: AdvertisingIdProvider?,
+        val appSetIdProvider: AppSetIdProvider?,
+        val overrides: IdentityOverrides,
+        val allowAutoResolve: Boolean,
+        val googlePlayAutoResolveEnabled: Boolean
+    )
+
+    private data class EventDispatchSnapshot(
+        val creativeToken: String,
+        val retentionDay: Int?,
+        val developmentMode: Boolean,
+        val appVersion: String,
+        val whitelistedProperties: Map<String, String>,
+        val blacklistedProperties: Map<String, String>,
+        val context: Context?
     )
 
     private data class QueuedEvent(

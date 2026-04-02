@@ -6,5 +6,6 @@ data class AudienceLabOptions @JvmOverloads constructor(
     val isDebugEnabled: Boolean = false,
     val isDevelopmentMode: Boolean? = null,
     val appVersion: String? = null,
-    val baseUrl: String? = null
+    val baseUrl: String? = null,
+    val autoResolveGooglePlayIds: Boolean = true
 )

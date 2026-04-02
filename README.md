@@ -142,6 +142,7 @@ Identity provider hooks (optional dependency path):
 - `setAdvertisingIdProvider(provider: AdvertisingIdProvider?)`
 - `setAppSetIdProvider(provider: AppSetIdProvider?)`
 - If Google Play Services ID support is already present in the host app, the SDK also attempts automatic reflective lookup for GAID and App Set ID without adding a hard dependency.
+- Set `AudienceLabOptions(autoResolveGooglePlayIds = false)` during `initialize(...)` to disable all automatic Google Play Services ID lookups in restricted-network environments.
 - Manual overrides:
   - `setAdvertisingId(...)` / `clearAdvertisingId()`
   - `setAppSetId(...)` / `clearAppSetId()`

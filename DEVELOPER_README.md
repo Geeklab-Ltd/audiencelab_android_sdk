@@ -62,7 +62,7 @@ Example:
 
 ```kotlin
 dependencies {
-    implementation(files("libs/audiencelab-sdk-release-1.1.9.aar"))
+    implementation(files("libs/audiencelab-sdk-release-1.1.10.aar"))
 }
 ```
 
@@ -74,7 +74,7 @@ Example dependency:
 
 ```kotlin
 dependencies {
-    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.9")
+    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.10")
 }
 ```
 
@@ -311,6 +311,7 @@ The SDK supports three identity input modes for Android:
 
 The SDK does not add a hard dependency on Play Services for this.
 For GAID, the SDK only attempts automatic lookup if the host app already declares the ad ID permission.
+Automatic Play Services lookup can be disabled entirely during initialization with `AudienceLabOptions(autoResolveGooglePlayIds = false)`.
 
 ## Identity Settled State
 

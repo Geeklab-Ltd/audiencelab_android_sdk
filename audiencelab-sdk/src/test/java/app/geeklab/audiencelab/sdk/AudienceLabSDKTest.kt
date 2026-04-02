@@ -1,5 +1,10 @@
 package app.geeklab.audiencelab.sdk
 
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.ContextWrapper
+import android.content.res.Resources
 import app.geeklab.audiencelab.sdk.internal.network.ApiClient
 import app.geeklab.audiencelab.sdk.internal.network.Endpoints
 import app.geeklab.audiencelab.sdk.internal.network.NetworkError
@@ -15,8 +20,21 @@ import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AudienceLabSDKTest {
+    private val testContext = object : ContextWrapper(null) {
+        override fun getApplicationContext(): Context = this
+
+        override fun getPackageName(): String = "app.geeklab.audiencelab.test"
+
+        override fun getResources(): Resources = Resources.getSystem()
+
+        override fun getSystemService(name: String): Any? = null
+
+        override fun registerReceiver(receiver: android.content.BroadcastReceiver?, filter: IntentFilter?): Intent? = null
+    }
+
     @Before
     fun setUp() {
         AudienceLabSDK.resetForTesting(clearPersistence = true)
@@ -562,6 +580,23 @@ class AudienceLabSDKTest {
     }
 
     @Test
+    fun identityDebugSnapshot_marksGoogleIdsSettled_whenAutoResolveIsDisabled() {
+        AudienceLabSDK.initialize(
+            apiKey = "test-api-key-123",
+            options = AudienceLabOptions(autoResolveGooglePlayIds = false)
+        )
+        setPrivateSdkField("applicationContext", testContext)
+
+        val snapshot = AudienceLabSDK.getIdentityDebugSnapshot()
+
+        assertTrue(snapshot.settled)
+        assertTrue(snapshot.advertisingIdSettled)
+        assertTrue(snapshot.appSetIdSettled)
+        assertFalse(snapshot.advertisingIdAvailable)
+        assertFalse(snapshot.appSetIdAvailable)
+    }
+
+    @Test
     fun sessionLifecycle_emitsTimeoutEndAndNewStart_afterInactivity() {
         val backing = mutableMapOf<String, Any?>()
         val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
@@ -862,6 +897,55 @@ class AudienceLabSDKTest {
         val createdAt = webhookBodies.first()["created_at"] as? String
         assertEquals("2023-11-14 22:13:20", createdAt)
         assertEquals(now, queueEntry.createdAtMillis)
+    }
+
+    @Test
+    fun flushQueue_doesNotHoldSdkMonitorWhileResolvingIdentity() {
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.handleDeepLink("myapp://open?creative_token=real-token-123")
+        AudienceLabSDK.sendCustomEvent("lock_test")
+        setPrivateSdkField("applicationContext", testContext)
+
+        val holdProviderDuringFlush = AtomicBoolean(false)
+        val providerEntered = CountDownLatch(1)
+        val releaseProvider = CountDownLatch(1)
+        AudienceLabSDK.setAdvertisingIdProvider {
+            if (holdProviderDuringFlush.get()) {
+                providerEntered.countDown()
+                assertTrue(releaseProvider.await(2, TimeUnit.SECONDS))
+            }
+            AdvertisingInfo(advertisingId = "gaid-provider-123", limitAdTracking = false)
+        }
+        AudienceLabSDK.setAppSetIdProvider { null }
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    callback(Result.success(emptyMap()))
+                }
+            }
+        )
+        holdProviderDuringFlush.set(true)
+
+        val flushThread = Thread {
+            invokePrivateSdkMethod("flushQueue", "lock_test")
+        }
+        flushThread.start()
+
+        assertTrue(providerEntered.await(2, TimeUnit.SECONDS))
+
+        val setterFinished = CountDownLatch(1)
+        val setterThread = Thread {
+            AudienceLabSDK.setDebugEnabled(true)
+            setterFinished.countDown()
+        }
+        setterThread.start()
+
+        assertTrue(setterFinished.await(500, TimeUnit.MILLISECONDS))
+
+        releaseProvider.countDown()
+        flushThread.join(2_000L)
+        setterThread.join(2_000L)
+        assertFalse(flushThread.isAlive)
     }
 
     private fun invokePrivateSdkMethod(methodName: String, arg: String) {
