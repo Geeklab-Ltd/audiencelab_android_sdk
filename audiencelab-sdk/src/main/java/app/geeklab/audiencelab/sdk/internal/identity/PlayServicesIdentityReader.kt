@@ -146,11 +146,15 @@ internal object PlayServicesIdentityReader {
         }.getOrNull()
     }
 
-    internal fun resetForTesting() {
+    internal fun clearCache() {
         cachedAdvertisingInfo = null
         advertisingInfoResolved = false
         cachedAppSetId = null
         appSetIdResolved = false
+    }
+
+    internal fun resetForTesting() {
+        clearCache()
     }
 
     private fun isAdIdPermissionDeclared(context: Context): Boolean {

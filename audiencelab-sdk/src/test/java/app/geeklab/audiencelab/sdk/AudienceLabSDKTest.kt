@@ -21,6 +21,7 @@ import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class AudienceLabSDKTest {
     private val testContext = object : ContextWrapper(null) {
@@ -948,6 +949,42 @@ class AudienceLabSDKTest {
         assertFalse(flushThread.isAlive)
     }
 
+    @Test
+    fun identityProviders_areMemoizedUntilIdentityCacheIsCleared() {
+        AudienceLabSDK.initialize("test-api-key-123")
+        setPrivateSdkField("applicationContext", testContext)
+        val advertisingProviderCalls = AtomicInteger(0)
+        val appSetProviderCalls = AtomicInteger(0)
+
+        AudienceLabSDK.setAdvertisingIdProvider {
+            advertisingProviderCalls.incrementAndGet()
+            AdvertisingInfo(
+                advertisingId = "gaid-provider-123",
+                limitAdTracking = false
+            )
+        }
+        AudienceLabSDK.setAppSetIdProvider {
+            appSetProviderCalls.incrementAndGet()
+            "asid-provider-456"
+        }
+
+        invokePrivateCollectIdentity()
+        invokePrivateCollectIdentity()
+
+        assertEquals(1, advertisingProviderCalls.get())
+        assertEquals(1, appSetProviderCalls.get())
+
+        AudienceLabSDK.clearIdentityCache()
+        invokePrivateCollectIdentity()
+
+        assertEquals(2, advertisingProviderCalls.get())
+        assertEquals(2, appSetProviderCalls.get())
+        val snapshot = AudienceLabSDK.getIdentityDebugSnapshot()
+        assertEquals("gaid...-123", snapshot.advertisingIdPreview)
+        assertEquals("asid...-456", snapshot.appSetIdPreview)
+        assertEquals(false, snapshot.limitAdTracking)
+    }
+
     private fun invokePrivateSdkMethod(methodName: String, arg: String) {
         val method = AudienceLabSDK::class.java.getDeclaredMethod(methodName, String::class.java)
         method.isAccessible = true
@@ -956,6 +993,12 @@ class AudienceLabSDKTest {
 
     private fun invokePrivateNoArgSdkMethod(methodName: String) {
         val method = AudienceLabSDK::class.java.getDeclaredMethod(methodName)
+        method.isAccessible = true
+        method.invoke(AudienceLabSDK)
+    }
+
+    private fun invokePrivateCollectIdentity() {
+        val method = AudienceLabSDK::class.java.getDeclaredMethod("collectIdentity")
         method.isAccessible = true
         method.invoke(AudienceLabSDK)
     }

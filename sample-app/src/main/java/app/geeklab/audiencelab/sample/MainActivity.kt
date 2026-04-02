@@ -20,7 +20,8 @@ class MainActivity : Activity() {
             apiKey = "Geekac39a4bf-588f-4094-8ad8-2325eb96136f",
             options = AudienceLabOptions(
                 isDevelopmentMode = BuildConfig.DEBUG,
-                isDebugEnabled = BuildConfig.DEBUG
+                isDebugEnabled = BuildConfig.DEBUG,
+                autoResolveGooglePlayIds = false
             )
         )
 
@@ -111,8 +112,13 @@ class MainActivity : Activity() {
             "AudienceLab SDK initialized: $initialized\n" +
                 "Version: ${AudienceLabSDK.getSdkVersion()}\n" +
                 "Dev mode: ${AudienceLabSDK.isDevelopmentMode()}\n" +
+                "Auto-resolve Google IDs: true\n" +
                 "Creative token: ${token.creativeTokenPreview ?: "none"} (${token.lastFetchStatus})\n" +
                 "Identity settled: ${identity.settled}\n" +
+                "GAID settled: ${identity.advertisingIdSettled}, available: ${identity.advertisingIdAvailable}, value: ${identity.advertisingIdPreview ?: "none"}\n" +
+                "App Set settled: ${identity.appSetIdSettled}, available: ${identity.appSetIdAvailable}, value: ${identity.appSetIdPreview ?: "none"}\n" +
+                "Android ID settled: ${identity.androidIdSettled}, available: ${identity.androidIdAvailable}, value: ${identity.androidIdPreview ?: "none"}\n" +
+                "Limit ad tracking: ${identity.limitAdTracking}\n" +
                 "Queued events: ${AudienceLabSDK.getQueueSize()}\n" +
                 "Logged requests: ${RequestLogStore.snapshot().size}\n" +
                 "Whitelisted props: ${AudienceLabSDK.getWhitelistedUserProperties()}\n" +

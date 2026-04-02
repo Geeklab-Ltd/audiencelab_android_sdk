@@ -61,16 +61,30 @@ From `audiencelab_android_sdk/`:
 From `audiencelab_android_sdk/`:
 
 ```bash
+./docker/build-image.sh
+./docker/run-quick.sh
+```
+
+`run-quick.sh` is the fastest local verification path and runs:
+
+- `:audiencelab-sdk:testDebugUnitTest`
+- `:sample-app:assembleDebug`
+
+For full release-style verification, run:
+
+```bash
 ./docker/run-tests.sh
 ```
 
-This builds a Docker image with JDK 17 + Android SDK and runs:
+That runs:
 
 - `:audiencelab-sdk:testDebugUnitTest`
 - `:audiencelab-sdk:assembleRelease`
+- `:audiencelab-sdk:publishReleasePublicationToMavenLocal`
 - `:sample-app:assembleDebug`
 
-Ensure Docker Desktop / Docker daemon is running before executing the script.
+The Docker scripts reuse a named Docker volume for `/root/.gradle` so Gradle distributions and Maven dependencies stay warm across runs.
+Ensure Docker Desktop / Docker daemon is running before executing the scripts.
 
 ## Public API Baseline (Parity-Oriented)
 
@@ -137,16 +151,18 @@ Queue, callbacks, and versions:
 - `getAppVersion()`
 - `getRuntimeVersion()`
 
-Identity provider hooks (optional dependency path):
+Identity strategies:
 
-- `setAdvertisingIdProvider(provider: AdvertisingIdProvider?)`
-- `setAppSetIdProvider(provider: AppSetIdProvider?)`
-- If Google Play Services ID support is already present in the host app, the SDK also attempts automatic reflective lookup for GAID and App Set ID without adding a hard dependency.
-- Set `AudienceLabOptions(autoResolveGooglePlayIds = false)` during `initialize(...)` to disable all automatic Google Play Services ID lookups in restricted-network environments.
-- Manual overrides:
+- App-supplied identity:
+  - `setAdvertisingIdProvider(provider: AdvertisingIdProvider?)`
+  - `setAppSetIdProvider(provider: AppSetIdProvider?)`
   - `setAdvertisingId(...)` / `clearAdvertisingId()`
   - `setAppSetId(...)` / `clearAppSetId()`
   - `setLimitAdTracking(...)`
+  - `clearIdentityCache()`
+- Automatic identity lookup:
+  - If Google Play Services ID support is already present in the host app, the SDK also attempts automatic reflective lookup for GAID and App Set ID without adding a hard dependency.
+  - Set `AudienceLabOptions(autoResolveGooglePlayIds = false)` during `initialize(...)` to disable all automatic Google Play Services ID lookups in restricted-network environments.
 - Identity/debug observability:
   - `isIdentitySettled()`
   - `getIdentityDebugSnapshot()`

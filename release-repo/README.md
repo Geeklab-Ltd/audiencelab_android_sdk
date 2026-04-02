@@ -92,7 +92,7 @@ AudienceLabSDK.initialize(
 )
 ```
 
-If your app runs in a restricted-network environment and Google Play Services ID lookup can stall, set `autoResolveGooglePlayIds = false` and provide GAID or App Set ID later through manual setters or custom providers.
+If your app runs in a restricted-network environment and Google Play Services ID lookup can stall, set `autoResolveGooglePlayIds = false` and provide app-supplied GAID or App Set ID later through manual setters or custom providers. If those app-supplied values change later, call `clearIdentityCache()` before expecting the SDK to resolve them again.
 
 Recommended app-module setup:
 

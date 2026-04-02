@@ -303,15 +303,18 @@ AudienceLabSDK.handleDeepLink(intent?.dataString)
 
 ## GAID And App Set ID Behavior
 
-The SDK supports three identity input modes for Android:
+The SDK supports two identity strategies for Android:
 
-- manual overrides via `setAdvertisingId(...)` and `setAppSetId(...)`
-- explicit provider injection via `setAdvertisingIdProvider(...)` and `setAppSetIdProvider(...)`
+- app-supplied identity
+  via `setAdvertisingId(...)`, `setAppSetId(...)`, `setLimitAdTracking(...)`,
+  `setAdvertisingIdProvider(...)`, and `setAppSetIdProvider(...)`
 - automatic reflective lookup when the host game already includes the relevant Google Play Services classes
 
 The SDK does not add a hard dependency on Play Services for this.
 For GAID, the SDK only attempts automatic lookup if the host app already declares the ad ID permission.
 Automatic Play Services lookup can be disabled entirely during initialization with `AudienceLabOptions(autoResolveGooglePlayIds = false)`.
+Provider-returned values are memoized in memory after the first resolution for the rest of the app process.
+Call `AudienceLabSDK.clearIdentityCache()` when your app knows those app-supplied values changed and the SDK should resolve them again.
 
 ## Identity Settled State
 

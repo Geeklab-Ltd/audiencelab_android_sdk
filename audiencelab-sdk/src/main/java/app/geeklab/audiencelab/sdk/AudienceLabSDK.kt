@@ -256,6 +256,7 @@ object AudienceLabSDK {
     @JvmStatic
     fun setAdvertisingIdProvider(provider: AdvertisingIdProvider?) {
         advertisingIdProvider = provider
+        IdentityCollector.clearProviderCache()
         refreshIdentityDebugState(allowAutoResolve = false)
     }
 
@@ -263,6 +264,7 @@ object AudienceLabSDK {
     @JvmStatic
     fun setAppSetIdProvider(provider: AppSetIdProvider?) {
         appSetIdProvider = provider
+        IdentityCollector.clearProviderCache()
         refreshIdentityDebugState(allowAutoResolve = false)
     }
 
@@ -310,6 +312,19 @@ object AudienceLabSDK {
     @JvmStatic
     fun setLimitAdTracking(value: Boolean?) {
         manualLimitAdTracking = value
+        refreshIdentityDebugState(allowAutoResolve = false)
+    }
+
+    /**
+     * Clears in-memory identity caches for both app-supplied providers and automatic
+     * Google Play Services lookup. Call this when your app knows GAID, App Set ID,
+     * or Limit Ad Tracking state changed and the SDK should resolve them again.
+     */
+    @Synchronized
+    @JvmStatic
+    fun clearIdentityCache() {
+        IdentityCollector.clearProviderCache()
+        PlayServicesIdentityReader.clearCache()
         refreshIdentityDebugState(allowAutoResolve = false)
     }
 
@@ -806,7 +821,8 @@ object AudienceLabSDK {
         unregisterRuntimeSignals()
         nowProvider = { System.currentTimeMillis() }
         runTasksInlineForTesting = false
-        PlayServicesIdentityReader.resetForTesting()
+        IdentityCollector.clearProviderCache()
+        PlayServicesIdentityReader.clearCache()
         Logger.configure(false)
     }
 
@@ -826,7 +842,8 @@ object AudienceLabSDK {
         cancelScheduledTasks()
         unregisterRuntimeSignals()
         nowProvider = { System.currentTimeMillis() }
-        PlayServicesIdentityReader.resetForTesting()
+        IdentityCollector.clearProviderCache()
+        PlayServicesIdentityReader.clearCache()
         Logger.configure(false)
     }
 

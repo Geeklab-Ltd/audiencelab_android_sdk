@@ -7,10 +7,12 @@ All notable changes to this package are documented in this file.
 ### Added
 
 - Added `AudienceLabOptions(autoResolveGooglePlayIds = false)` to disable automatic Google Play Services GAID and App Set ID lookup in restricted-network environments.
+- Added `AudienceLabSDK.clearIdentityCache()` to clear in-memory app-supplied and automatic identity caches when the host app knows identity values changed.
 
 ### Changed
 
 - Event dispatch now snapshots SDK state under lock and performs device/identity collection outside the `AudienceLabSDK` monitor to avoid UI freezes when Google ID lookup or injected providers stall.
+- App-supplied provider values for GAID, App Set ID, and Limit Ad Tracking are now memoized in memory after first resolution for the lifetime of the app process.
 
 ## [1.1.9] - 2026-03-24
 

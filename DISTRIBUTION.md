@@ -54,10 +54,12 @@ Full local validation command:
 Docker validation command:
 
 ```bash
-./docker/run-tests.sh
+./docker/build-image.sh
+./docker/run-quick.sh
 ```
 
 The Docker path is the preferred fallback when the local machine does not have a working JDK 17 + Android SDK setup.
+Use `./docker/run-tests.sh` for the full release-style validation pass.
 
 ## Build Requirements
 
@@ -113,7 +115,8 @@ From `audiencelab_android_sdk/`:
 
 1. Update Android SDK version sources and changelog.
 2. Run validation:
-   - `./docker/run-tests.sh`
+   - Quick local verification: `./docker/run-quick.sh`
+   - Full release verification: `./docker/run-tests.sh`
 3. Build release artifact:
    - `./gradlew :audiencelab-sdk:assembleRelease`
 4. Publish Maven package when releasing through the package feed:
