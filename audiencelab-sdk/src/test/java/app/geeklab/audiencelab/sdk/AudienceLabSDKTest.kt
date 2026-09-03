@@ -985,6 +985,81 @@ class AudienceLabSDKTest {
         assertEquals(false, snapshot.limitAdTracking)
     }
 
+    @Test
+    fun getRevenueCatAttributes_returnsAudienceLabId_fromGa() {
+        AudienceLabSDK.setAdvertisingId("gaid-123")
+
+        assertEquals(
+            mapOf("audienceLabId" to "gaid-123"),
+            AudienceLabSDK.getRevenueCatAttributes()
+        )
+    }
+
+    @Test
+    fun getRevenueCatAttributes_prefersGa_overAsid() {
+        AudienceLabSDK.setAdvertisingId("gaid-123")
+        AudienceLabSDK.setAppSetId("asid-456")
+
+        assertEquals(
+            mapOf("audienceLabId" to "gaid-123"),
+            AudienceLabSDK.getRevenueCatAttributes()
+        )
+    }
+
+    @Test
+    fun getRevenueCatAttributes_fallsBackToAsid_whenGaMissing() {
+        AudienceLabSDK.setAppSetId("asid-456")
+
+        assertEquals(
+            mapOf("audienceLabId" to "asid-456"),
+            AudienceLabSDK.getRevenueCatAttributes()
+        )
+    }
+
+    @Test
+    fun getRevenueCatAttributes_treatsAllZeroGaidAsMissing() {
+        AudienceLabSDK.setAdvertisingId("00000000-0000-0000-0000-000000000000")
+        AudienceLabSDK.setAppSetId("asid-456")
+
+        assertEquals(
+            mapOf("audienceLabId" to "asid-456"),
+            AudienceLabSDK.getRevenueCatAttributes()
+        )
+    }
+
+    @Test
+    fun getRevenueCatAttributes_returnsEmpty_whenNoIdentityAvailable() {
+        assertEquals(emptyMap<String, String>(), AudienceLabSDK.getRevenueCatAttributes())
+    }
+
+    @Test
+    fun buildRevenueCatAttributes_usesGaThenAsidThenAidPriority() {
+        assertEquals(
+            mapOf("audienceLabId" to "ga-1"),
+            AudienceLabSDK.buildRevenueCatAttributes(ga = "ga-1", asid = "asid-1", aid = "aid-1")
+        )
+        assertEquals(
+            mapOf("audienceLabId" to "asid-1"),
+            AudienceLabSDK.buildRevenueCatAttributes(ga = null, asid = "asid-1", aid = "aid-1")
+        )
+        assertEquals(
+            mapOf("audienceLabId" to "asid-1"),
+            AudienceLabSDK.buildRevenueCatAttributes(
+                ga = "00000000-0000-0000-0000-000000000000",
+                asid = "asid-1",
+                aid = "aid-1"
+            )
+        )
+        assertEquals(
+            mapOf("audienceLabId" to "aid-1"),
+            AudienceLabSDK.buildRevenueCatAttributes(ga = null, asid = null, aid = "aid-1")
+        )
+        assertEquals(
+            emptyMap<String, String>(),
+            AudienceLabSDK.buildRevenueCatAttributes(ga = "  ", asid = "", aid = null)
+        )
+    }
+
     private fun invokePrivateSdkMethod(methodName: String, arg: String) {
         val method = AudienceLabSDK::class.java.getDeclaredMethod(methodName, String::class.java)
         method.isAccessible = true

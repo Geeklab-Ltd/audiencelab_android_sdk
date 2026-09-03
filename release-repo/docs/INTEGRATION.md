@@ -100,6 +100,14 @@ AudienceLabSDK.initialize(
 
 If your app runs in a restricted-network environment and Google Play Services ID lookup can stall, set `autoResolveGooglePlayIds = false` and provide app-supplied GAID or App Set ID later through manual setters or custom providers. If those app-supplied values change later, call `clearIdentityCache()` before expecting the SDK to resolve them again.
 
+## RevenueCat Attributes
+
+After `Purchases.configure` and before the first paywall, copy AudienceLab's device id onto the RevenueCat subscriber (safe every cold start):
+
+```kotlin
+Purchases.sharedInstance.setAttributes(AudienceLabSDK.getRevenueCatAttributes())
+```
+
 ## Sending Events
 
 Initialize the SDK before sending events:

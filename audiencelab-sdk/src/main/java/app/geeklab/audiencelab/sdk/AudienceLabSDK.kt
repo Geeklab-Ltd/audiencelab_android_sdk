@@ -53,6 +53,7 @@ object AudienceLabSDK {
     private const val SESSION_TIMEOUT_MILLIS = 30L * 60L * 1000L
     private const val MAX_QUEUE_RETRY_DELAY_MILLIS = 5L * 60L * 1000L
     private const val MAX_QUEUE_AGE_MILLIS = 24L * 60L * 60L * 1000L
+    private const val ZERO_GAID = "00000000-0000-0000-0000-000000000000"
     private val hashRequiredBlacklistedKeys = setOf("email", "phone")
 
     private val deepLinkTokenKeys = listOf(
@@ -234,6 +235,25 @@ object AudienceLabSDK {
     fun getIdentityDebugSnapshot(): IdentityDebugSnapshot {
         refreshIdentityDebugState(allowAutoResolve = false)
         return state.identityDebugSnapshot
+    }
+
+    @JvmStatic
+    fun getRevenueCatAttributes(): Map<String, String> {
+        val identity = collectIdentity()
+        return buildRevenueCatAttributes(
+            ga = identity.ga,
+            asid = identity.asid,
+            aid = identity.aid
+        )
+    }
+
+    internal fun buildRevenueCatAttributes(ga: String?, asid: String?, aid: String?): Map<String, String> {
+        val audienceLabId = firstNonEmptyIdentity(
+            normalizeGaForRevenueCat(ga),
+            normalizeIdentityValue(asid),
+            normalizeIdentityValue(aid)
+        ) ?: return emptyMap()
+        return mapOf("audienceLabId" to audienceLabId)
     }
 
     @JvmStatic
@@ -1126,6 +1146,22 @@ object AudienceLabSDK {
             return null
         }
         return normalized
+    }
+
+    private fun normalizeIdentityValue(value: String?): String? {
+        return value?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun normalizeGaForRevenueCat(ga: String?): String? {
+        val normalized = normalizeIdentityValue(ga) ?: return null
+        if (normalized.equals(ZERO_GAID, ignoreCase = true)) {
+            return null
+        }
+        return normalized
+    }
+
+    private fun firstNonEmptyIdentity(vararg values: String?): String? {
+        return values.firstOrNull { it != null }
     }
 
     private fun randomJitterRatio(): Double = Math.random() * 0.3
