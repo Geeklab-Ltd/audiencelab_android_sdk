@@ -2,6 +2,12 @@
 
 All notable changes to this package are documented in this file.
 
+## [1.1.11] - 2026-09-04
+
+### Added
+
+- Added `AudienceLabSDK.getRevenueCatAttributes()` to return an `audienceLabId` map for RevenueCat subscriber attributes, so purchases and renewals can be attributed to the AudienceLab install.
+
 ## [1.1.10] - 2026-04-02
 
 ### Added

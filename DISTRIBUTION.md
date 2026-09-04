@@ -140,7 +140,7 @@ Example:
 
 ```kotlin
 dependencies {
-    implementation(files("libs/audiencelab-sdk-release-1.1.10.aar"))
+    implementation(files("libs/audiencelab-sdk-release-1.1.11.aar"))
 }
 ```
 
@@ -183,7 +183,7 @@ Dependency:
 
 ```kotlin
 dependencies {
-    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.10")
+    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.11")
 }
 ```
 

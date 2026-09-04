@@ -48,7 +48,7 @@ Add the dependency:
 
 ```kotlin
 dependencies {
-    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.10")
+    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.11")
 }
 ```
 
@@ -63,13 +63,13 @@ gpr.key=YOUR_GITHUB_PACKAGES_TOKEN
 
 If you received a release AAR instead of package-feed access:
 
-1. Download `audiencelab-sdk-release-1.1.10.aar`
+1. Download `audiencelab-sdk-release-1.1.11.aar`
 2. Place it in your app project, for example `app/libs/`
 3. Add it as a file dependency
 
 ```kotlin
 dependencies {
-    implementation(files("libs/audiencelab-sdk-release-1.1.10.aar"))
+    implementation(files("libs/audiencelab-sdk-release-1.1.11.aar"))
 }
 ```
 
@@ -176,7 +176,7 @@ For blacklisted `email` and `phone` values, the Android SDK automatically SHA-25
 
 Current SDK line:
 
-- SDK version: `1.1.10`
+- SDK version: `1.1.11`
 - minimum SDK: `23`
 - target SDK: `36`
 
