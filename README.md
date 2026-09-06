@@ -106,6 +106,24 @@ android {
 
 For more detailed setup instructions, see the [Integration Guide](docs/INTEGRATION.md).
 
+## Agent-verifiable integration contract (GEE-518)
+
+Agents integrating or certifying a native Android app should treat these files as the source of truth:
+
+- [Android native integration contract](contracts/android-native-integration.v1.json)
+- [Agent contract guide](docs/AGENT_INTEGRATION_CONTRACT.md)
+- [Verification path](docs/VERIFICATION.md)
+
+Deterministic package pin for certification: `ai.audiencelab:audiencelab-android-sdk:1.1.11`.
+
+Local machine check:
+
+```bash
+python3 scripts/verify_integration_contract.py --example-evidence
+```
+
+Credential delivery follows GEE-481: one-time / short-lived handoff into sealed config or CI secrets; never write raw API keys into ordinary logs, analytics events, or shared audit payloads. Google Play submit automation is out of scope for this contract.
+
 ## Finalizing SDK Integration
 
 After configuration:
@@ -114,6 +132,7 @@ After configuration:
 2. Launch the app and verify SDK initialization succeeds
 3. Confirm the SDK receives a creative token successfully
 4. Verify events are sent without runtime errors
+5. For agent certification, produce verification evidence and run `scripts/verify_integration_contract.py` (see [docs/VERIFICATION.md](docs/VERIFICATION.md))
 
 ## Event Tracking
 

@@ -2,6 +2,17 @@
 
 All notable changes to this package are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Published an agent-verifiable native Android integration contract for GEE-518:
+  - `contracts/android-native-integration.v1.json` (+ JSON Schema)
+  - verification evidence schema/example
+  - `scripts/verify_integration_contract.py`
+  - `docs/AGENT_INTEGRATION_CONTRACT.md` and `docs/VERIFICATION.md`
+- Documented deterministic package pin `ai.audiencelab:audiencelab-android-sdk:1.1.11`, credential handoff rules from GEE-481, required signals, consent/diagnostics, rollback, and Phase 3 Google Play submit out-of-scope boundary.
+
 ## [1.1.11] - 2026-09-04
 
 ### Added

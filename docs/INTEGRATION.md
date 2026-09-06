@@ -2,6 +2,12 @@
 
 This guide is for Android game/app developers integrating the released AudienceLab Android SDK.
 
+For agent-driven integration and certification, also read:
+
+- [Agent Integration Contract](AGENT_INTEGRATION_CONTRACT.md)
+- [Verification Path](VERIFICATION.md)
+- Machine-readable contract: [`contracts/android-native-integration.v1.json`](../contracts/android-native-integration.v1.json)
+
 ## Requirements
 
 - Android app or game project
@@ -217,3 +223,11 @@ After integration, verify:
 4. a creative token is obtained
 5. queued events flush after token availability
 6. ad, purchase, and custom events can be sent without runtime errors
+
+For machine-checkable agent certification evidence, follow [VERIFICATION.md](VERIFICATION.md) and run:
+
+```bash
+python3 scripts/verify_integration_contract.py --evidence path/to/evidence.json
+```
+
+Keep API keys out of git and logs. Prefer a one-time credential handoff into BuildConfig or CI secrets (GEE-481).
