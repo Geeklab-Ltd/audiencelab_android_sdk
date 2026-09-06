@@ -1,0 +1,3 @@
+# Ignore generated verification evidence contents, keep directory.
+*
+!.gitignore

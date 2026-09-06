@@ -1,0 +1,499 @@
+{
+  "contract_id": "audiencelab.android_sdk.integration",
+  "contract_version": "1.0.0",
+  "schema_ref": "android-sdk.integration.v1.schema.json",
+  "issue_refs": [
+    "GEE-518",
+    "GEE-481"
+  ],
+  "platform": "native_android",
+  "status": "published",
+  "published_at": "2026-09-06",
+  "summary": "Agent-verifiable native Android integration contract for AudienceLabSDK. Deterministic package identity, install steps, required signals, consent behavior, diagnostics, credential handoff rules, rollback, and machine-checkable verification evidence.",
+  "sdk": {
+    "product_name": "AudienceLab Android SDK",
+    "module_name": "AudienceLabSDK",
+    "public_api_root": "app.geeklab.audiencelab.sdk",
+    "sdk_type": "native_android",
+    "version": "1.1.11",
+    "version_tag": "android-v1.1.11",
+    "maven_coordinates": "ai.audiencelab:audiencelab-android-sdk:1.1.11",
+    "maven_group_id": "ai.audiencelab",
+    "maven_artifact_id": "audiencelab-android-sdk",
+    "min_sdk": 23,
+    "target_sdk": 36,
+    "default_base_url": "https://analytics.geeklab.app",
+    "endpoints": {
+      "fetch_token": "/fetch-token",
+      "webhook": "/webhook"
+    },
+    "api_key_header": "geeklab-api-key",
+    "repository": {
+      "git_url": "https://github.com/Geeklab-Ltd/audiencelab_android_sdk.git",
+      "https_url": "https://github.com/Geeklab-Ltd/audiencelab_android_sdk",
+      "authority": "Geeklab-Ltd/audiencelab_android_sdk",
+      "default_branch": "main",
+      "github_packages_url": "https://maven.pkg.github.com/geeklab-ltd/audiencelab_android_sdk"
+    },
+    "version_sources": [
+      {
+        "path": "contracts/android-sdk.integration.v1.json",
+        "field": "sdk.version"
+      },
+      {
+        "path": "README.md",
+        "field": "documented SDK version 1.1.11"
+      },
+      {
+        "path": "CHANGELOG.md",
+        "field": "## [1.1.11]"
+      },
+      {
+        "path": "GitHub Release android-v1.1.11 AAR BuildConfig.SDK_VERSION",
+        "field": "1.1.11"
+      }
+    ],
+    "distribution": [
+      {
+        "id": "gradle_github_packages",
+        "name": "Gradle / GitHub Packages",
+        "recommended": true,
+        "coordinates": "ai.audiencelab:audiencelab-android-sdk:1.1.11",
+        "repository_url": "https://maven.pkg.github.com/geeklab-ltd/audiencelab_android_sdk"
+      },
+      {
+        "id": "manual_aar",
+        "name": "Manual AAR",
+        "recommended": false,
+        "asset_name": "audiencelab-sdk-release-1.1.11.aar",
+        "notes": "Download from the matching GitHub Release when package-feed access is unavailable."
+      }
+    ]
+  },
+  "install_steps": [
+    {
+      "id": "obtain_credential",
+      "order": 1,
+      "title": "Obtain environment-scoped API key via one-time handoff",
+      "required": true,
+      "details": [
+        "Retrieve the AudienceLab application API key through the approved one-time/direct handoff channel for the entitled workspace and app environment (GEE-481).",
+        "Store the key in the host app secret store / CI secret store / Gradle secret-backed BuildConfig. Never commit the raw key to source control.",
+        "Never write the raw key into transcripts, ordinary logs, analytics events, or shared audit payloads.",
+        "Sandbox and production keys are distinct. Sandbox never implies analysis-ready."
+      ]
+    },
+    {
+      "id": "add_package",
+      "order": 2,
+      "title": "Add AudienceLab Android SDK to the app module",
+      "required": true,
+      "preferred_method": "gradle_github_packages",
+      "methods": {
+        "gradle_github_packages": [
+          "Add Maven repository https://maven.pkg.github.com/geeklab-ltd/audiencelab_android_sdk with gpr.user / gpr.key from Gradle properties or CI secrets.",
+          "Add implementation(\"ai.audiencelab:audiencelab-android-sdk:1.1.11\").",
+          "Do not use dynamic version ranges (+ / latest)."
+        ],
+        "manual_aar": [
+          "Download audiencelab-sdk-release-1.1.11.aar from release android-v1.1.11.",
+          "Place under app/libs/ and add implementation(files(\"libs/audiencelab-sdk-release-1.1.11.aar\"))."
+        ]
+      }
+    },
+    {
+      "id": "manifest_requirements",
+      "order": 3,
+      "title": "Declare required AndroidManifest entries",
+      "required": true,
+      "details": [
+        "Ensure <uses-permission android:name=\"android.permission.INTERNET\" /> is present.",
+        "No additional permissions are required to initialize the SDK."
+      ]
+    },
+    {
+      "id": "initialize_sdk",
+      "order": 4,
+      "title": "Initialize SDK early in Application startup",
+      "required": true,
+      "code_ref": "docs/AGENT_VERIFIABLE_INTEGRATION.md#initialize",
+      "api": "AudienceLabSDK.initialize(context, apiKey, options)",
+      "details": [
+        "Call initialize before sending events.",
+        "Use isDevelopmentMode=true for sandbox/dev traffic; false for production builds under certification.",
+        "Default autoResolveGooglePlayIds=true unless restricted-network or consent constraints require false."
+      ]
+    },
+    {
+      "id": "emit_required_signals",
+      "order": 5,
+      "title": "Emit required signals for certification",
+      "required": true,
+      "details": [
+        "Confirm creative token acquisition after initialize (TokenDebugSnapshot.hasValidToken or getCreativeToken()).",
+        "Allow automatic session and retention signals to flow.",
+        "Emit at least one integrator event (custom, custom.ad, or custom.purchase) accepted in the target environment."
+      ]
+    },
+    {
+      "id": "consent_gates",
+      "order": 6,
+      "title": "Apply host consent gates for advertising identifiers",
+      "required": true,
+      "details": [
+        "Host owns Play Data safety declarations and advertising-ID consent UX.",
+        "When consent is unavailable or Play Services lookup may stall, set autoResolveGooglePlayIds=false and supply identifiers only through consented setters/providers.",
+        "Blacklisted email/phone properties are SHA-256 hashed by the SDK."
+      ]
+    },
+    {
+      "id": "verify_locally",
+      "order": 7,
+      "title": "Run machine-checkable verification evidence",
+      "required": true,
+      "command": "python3 scripts/verify_android_integration_contract.py",
+      "evidence_path": "verification/evidence/latest.json"
+    }
+  ],
+  "public_api": {
+    "initialize": "AudienceLabSDK.initialize(context: Context, apiKey: String, options: AudienceLabOptions = AudienceLabOptions()): Boolean",
+    "required_entrypoints": [
+      "AudienceLabSDK.initialize(context, apiKey, options)",
+      "AudienceLabSDK.isInitialized()",
+      "AudienceLabSDK.getCreativeToken()",
+      "AudienceLabSDK.sendAdEvent(...)",
+      "AudienceLabSDK.sendPurchaseEvent(...)",
+      "AudienceLabSDK.sendCustomEvent(...)",
+      "AudienceLabSDK.setSdkEnabled(Boolean)",
+      "AudienceLabSDK.toggleMetricsCollection(Boolean)",
+      "AudienceLabSDK.setDebugEnabled(Boolean)",
+      "AudienceLabSDK.getSdkVersion()",
+      "AudienceLabSDK.getTokenDebugSnapshot()",
+      "AudienceLabSDK.getIdentityDebugSnapshot()",
+      "AudienceLabSDK.getDeviceDebugSnapshot()",
+      "AudienceLabSDK.getQueueDebugSnapshot()",
+      "AudienceLabSDK.getConfiguredApiKeyPreview()",
+      "AudienceLabSDK.getRevenueCatAttributes()"
+    ],
+    "options_type": "AudienceLabOptions",
+    "options_fields": [
+      "isSdkEnabled",
+      "isMetricsEnabled",
+      "isDebugEnabled",
+      "isDevelopmentMode",
+      "appVersion",
+      "baseUrl",
+      "autoResolveGooglePlayIds"
+    ]
+  },
+  "credentials": {
+    "kind": "application_api_key",
+    "header_name": "geeklab-api-key",
+    "environments": [
+      "sandbox",
+      "production"
+    ],
+    "handoff": {
+      "mode": "one_time_or_direct",
+      "agent_may_retrieve": true,
+      "scope": "entitled_workspace_app_only",
+      "cross_tenant_forbidden": true,
+      "prefer_short_lived_retrieval": true,
+      "never_persist_in": [
+        "git",
+        "mcp_transcripts",
+        "ordinary_logs",
+        "analytics_events",
+        "shared_audit_payloads"
+      ],
+      "audit_may_record": [
+        "issuance_metadata",
+        "use_metadata",
+        "rotation_metadata",
+        "presence_confirmation"
+      ]
+    },
+    "injection": {
+      "runtime_only": true,
+      "initialize_parameter": "apiKey",
+      "recommended_mechanisms": [
+        "CI secret -> BuildConfig field",
+        "Gradle local.properties / secret store (never committed)",
+        "Host sealed config"
+      ],
+      "forbidden_patterns": [
+        "hardcoded key literals in app source committed to git",
+        "keys in AndroidManifest.xml committed to git",
+        "keys in README examples beyond placeholders"
+      ],
+      "placeholder": "YOUR_AUDIENCELAB_API_KEY",
+      "redacted_preview_api": "AudienceLabSDK.getConfiguredApiKeyPreview()"
+    },
+    "production_gate": "Requires grant scope plus app state checks; sandbox never implies analysis-ready."
+  },
+  "required_signals": {
+    "policy_ref": "GEE-481",
+    "analysis_ready_requires": [
+      "production_or_approved_prod_like_credentials_bound",
+      "sdk_attested",
+      "accepted_production_signals_observed",
+      "freshness_within_policy_window",
+      "no_blocking_validation_failures"
+    ],
+    "automatic": [
+      {
+        "id": "session_lifecycle",
+        "event_types": [
+          "session"
+        ],
+        "emitter": "sdk",
+        "required_for_certification": true,
+        "notes": "Session start/end with 30-minute timeout after initialize when metrics are enabled."
+      },
+      {
+        "id": "retention",
+        "event_types": [
+          "retention"
+        ],
+        "emitter": "sdk",
+        "required_for_certification": true,
+        "notes": "Retention markers; first-launch day is 0; retention_day included on webhook envelopes."
+      },
+      {
+        "id": "creative_token",
+        "signal": "creative_token_acquired",
+        "emitter": "sdk",
+        "required_for_certification": true,
+        "check_api": "AudienceLabSDK.getTokenDebugSnapshot().hasValidToken / AudienceLabSDK.getCreativeToken()",
+        "notes": "Webhook delivery is gated on a valid creative token. Endpoint: POST {baseUrl}/fetch-token."
+      }
+    ],
+    "integrator_emitted": {
+      "minimum_for_certification": "at_least_one",
+      "choices": [
+        {
+          "id": "custom_event",
+          "api": "AudienceLabSDK.sendCustomEvent(name, params)",
+          "wire_type": "custom"
+        },
+        {
+          "id": "ad_event",
+          "api": "AudienceLabSDK.sendAdEvent(...)",
+          "wire_type": "custom.ad"
+        },
+        {
+          "id": "purchase_event",
+          "api": "AudienceLabSDK.sendPurchaseEvent(...)",
+          "wire_type": "custom.purchase"
+        }
+      ]
+    },
+    "envelope_required_fields": [
+      "type",
+      "eid",
+      "created_at",
+      "creativeToken",
+      "sdk_version",
+      "app_version",
+      "sdk_type",
+      "dev",
+      "payload"
+    ],
+    "identity_fields": {
+      "aid": "Android ID when available",
+      "ga": "Optional GAID when auto-resolved or host-supplied after consent",
+      "asid": "Optional App Set ID when available",
+      "lat": "Optional limit-ad-tracking flag when provided by host"
+    },
+    "first_signal_checks": [
+      "AudienceLabSDK.isInitialized() == true",
+      "TokenDebugSnapshot.hasValidToken == true (or getCreativeToken() non-blank non-placeholder)",
+      "At least one integrator event emitted without runtime error",
+      "Backend/MCP accepted_signal_count >= 1 for the credential environment when certifying readiness"
+    ]
+  },
+  "privacy_and_consent": {
+    "tracking": {
+      "sdk_requests_play_ads_consent_form": false,
+      "gaid_collection": "host_controlled_or_optional_auto_resolve",
+      "gaid_api": "AudienceLabSDK.setAdvertisingId(String) / setAdvertisingIdProvider",
+      "app_set_id_api": "AudienceLabSDK.setAppSetId(String) / setAppSetIdProvider",
+      "clear_identity_api": "AudienceLabSDK.clearAdvertisingId(); clearAppSetId(); clearIdentityCache()",
+      "auto_resolve_option": "AudienceLabOptions.autoResolveGooglePlayIds",
+      "rule": "Do not collect or forward advertising IDs that violate the host app's declared consent state. Prefer autoResolveGooglePlayIds=false when consent is unavailable."
+    },
+    "metrics_toggles": {
+      "master": "AudienceLabSDK.setSdkEnabled(Boolean)",
+      "metrics": "AudienceLabSDK.toggleMetricsCollection(Boolean)",
+      "debug": "AudienceLabSDK.setDebugEnabled(Boolean)"
+    },
+    "user_properties": {
+      "whitelisted_scope": "UserPropertyScope.WHITELISTED",
+      "blacklisted_scope": "UserPropertyScope.BLACKLISTED",
+      "hashed_blacklisted_keys": [
+        "email",
+        "phone"
+      ],
+      "hash": "SHA-256 after normalization",
+      "reserved_wp_prefix": "_"
+    },
+    "permissions": {
+      "required_manifest_permissions": [
+        "android.permission.INTERNET"
+      ],
+      "optional_manifest_permissions": [],
+      "notes": "The shipped AAR declares minSdkVersion 23. Play Services GAID/App Set ID lookup is reflective and optional."
+    },
+    "host_app_responsibilities": [
+      "Google Play Data safety declarations",
+      "Advertising ID / UMP consent UX when GAID is used",
+      "Age / export / legal declarations (human-owned per GEE-481)"
+    ]
+  },
+  "diagnostics": {
+    "runtime_flags": [
+      "AudienceLabOptions.isDebugEnabled",
+      "AudienceLabSDK.setDebugEnabled(Boolean)"
+    ],
+    "debug_only_apis": [
+      "AudienceLabSDK.getIdentityDebugSnapshot()",
+      "AudienceLabSDK.getTokenDebugSnapshot()",
+      "AudienceLabSDK.getDeviceDebugSnapshot()",
+      "AudienceLabSDK.getQueueDebugSnapshot()",
+      "AudienceLabSDK.setRequestDebugListener(RequestDebugListener)",
+      "AudienceLabSDK.getConfiguredApiKeyPreview()"
+    ],
+    "always_available_checks": [
+      "AudienceLabSDK.isInitialized()",
+      "AudienceLabSDK.getCreativeToken()",
+      "AudienceLabSDK.getQueueSize()",
+      "AudienceLabSDK.getSdkVersion()",
+      "AudienceLabSDK.getAppVersion()",
+      "AudienceLabSDK.getTotalAdValue()",
+      "AudienceLabSDK.getTotalPurchaseValue()",
+      "AudienceLabSDK.setRequestResultCallback(RequestResultCallback)"
+    ],
+    "secret_hygiene": {
+      "api_key_in_debug_preview_only": true,
+      "identity_values_masked_in_debug_snapshots": true,
+      "forbid_raw_key_in_verification_evidence": true
+    }
+  },
+  "rollback": {
+    "required": true,
+    "steps": [
+      {
+        "id": "disable_sdk",
+        "action": "AudienceLabSDK.setSdkEnabled(false) and/or AudienceLabSDK.toggleMetricsCollection(false)",
+        "effect": "Stops new metric emission without uninstalling the package."
+      },
+      {
+        "id": "reset_local_state",
+        "action": "Clear host-held API key references; optionally reinstall app / clear app storage to drop SharedPreferences SDK state",
+        "effect": "Removes persisted queue/token/toggles from the device profile used for certification."
+      },
+      {
+        "id": "remove_package",
+        "action": "Remove Maven/AAR dependency and AudienceLabSDK call sites, then rebuild",
+        "effect": "Eliminates SDK binary from the app."
+      },
+      {
+        "id": "revoke_credential",
+        "action": "Revoke or rotate the environment API key via Audiencelab credential lifecycle",
+        "effect": "Invalidates previously handed-off secrets; do not leave revoked keys in CI logs."
+      },
+      {
+        "id": "pin_previous_version",
+        "action": "If rolling back a bad upgrade, re-pin the last known-good Maven/AAR version and rebuild",
+        "effect": "Restores prior native behavior without Google Play submit automation."
+      }
+    ],
+    "evidence_after_rollback": [
+      "Verification harness still passes for remaining docs/contract artifacts if SDK docs remain",
+      "No raw API key present in git diff or verification evidence",
+      "App builds without AudienceLabSDK imports after package removal"
+    ]
+  },
+  "verification": {
+    "harness": {
+      "command": "python3 scripts/verify_android_integration_contract.py",
+      "working_directory": "repository_root",
+      "requires_android_sdk": false,
+      "requires_network": false,
+      "exit_codes": {
+        "0": "all checks passed",
+        "1": "one or more checks failed"
+      }
+    },
+    "evidence": {
+      "latest_path": "verification/evidence/latest.json",
+      "schema": {
+        "contract_id": "string",
+        "contract_version": "string",
+        "sdk_version": "string",
+        "generated_at": "ISO-8601 UTC",
+        "passed": "boolean",
+        "checks": "array of {id,status,detail}"
+      },
+      "must_not_contain": [
+        "raw api keys",
+        "geeklab-api-key secret values",
+        "full creative tokens"
+      ]
+    },
+    "checks": [
+      "contract_parses",
+      "contract_schema_shape",
+      "version_consistency",
+      "docs_present",
+      "credential_rules_explicit",
+      "rollback_rules_explicit",
+      "required_signals_defined",
+      "manifest_internet_declared",
+      "no_secret_literals_in_contract_docs",
+      "out_of_scope_store_submit_declared",
+      "issue_refs_gee518"
+    ]
+  },
+  "out_of_scope": [
+    {
+      "id": "google_play_submit",
+      "phase": 3,
+      "reason": "Google Play submission automation is Phase 3 / GEE-527; not part of this integration contract."
+    },
+    {
+      "id": "signed_build_attestations",
+      "phase": 3,
+      "reason": "Signed artifact attestations are GEE-528; this contract provides integration evidence only."
+    },
+    {
+      "id": "backend_readiness_state_machine",
+      "issue": "GEE-525",
+      "reason": "Backend analysis-ready state machine consumes signals; SDK contract defines emitter-side requirements."
+    }
+  ],
+  "human_docs": [
+    "docs/AGENT_VERIFIABLE_INTEGRATION.md",
+    "docs/INTEGRATION.md",
+    "README.md"
+  ],
+  "compatibility": {
+    "supported_platforms": [
+      "Android"
+    ],
+    "min_sdk": 23,
+    "target_sdk": 36,
+    "languages": [
+      "kotlin",
+      "java"
+    ],
+    "build_systems": [
+      "gradle_kotlin_dsl",
+      "gradle_groovy_dsl"
+    ],
+    "unsupported_in_this_contract": [
+      "Unity Android player builds (see Unity SDK contract GEE-516)",
+      "React Native / Flutter wrappers"
+    ]
+  }
+}

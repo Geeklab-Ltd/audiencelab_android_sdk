@@ -4,9 +4,8 @@ This guide is for Android game/app developers integrating the released AudienceL
 
 For agent-driven integration and certification, also read:
 
-- [Agent Integration Contract](AGENT_INTEGRATION_CONTRACT.md)
-- [Verification Path](VERIFICATION.md)
-- Machine-readable contract: [`contracts/android-native-integration.v1.json`](../contracts/android-native-integration.v1.json)
+- [Agent-verifiable integration guide](AGENT_VERIFIABLE_INTEGRATION.md)
+- Machine-readable contract: [`contracts/android-sdk.integration.v1.json`](../contracts/android-sdk.integration.v1.json)
 
 ## Requirements
 
@@ -224,10 +223,10 @@ After integration, verify:
 5. queued events flush after token availability
 6. ad, purchase, and custom events can be sent without runtime errors
 
-For machine-checkable agent certification evidence, follow [VERIFICATION.md](VERIFICATION.md) and run:
+For machine-checkable agent certification evidence, follow [AGENT_VERIFIABLE_INTEGRATION.md](AGENT_VERIFIABLE_INTEGRATION.md) and run:
 
 ```bash
-python3 scripts/verify_integration_contract.py --evidence path/to/evidence.json
+python3 scripts/verify_android_integration_contract.py
 ```
 
 Keep API keys out of git and logs. Prefer a one-time credential handoff into BuildConfig or CI secrets (GEE-481).
