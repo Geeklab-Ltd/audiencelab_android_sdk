@@ -19,12 +19,15 @@ import app.geeklab.audiencelab.sdk.internal.network.EnvelopeBuildInput
 import app.geeklab.audiencelab.sdk.internal.network.EventEnvelopeMapper
 import app.geeklab.audiencelab.sdk.internal.network.FetchTokenBuildInput
 import app.geeklab.audiencelab.sdk.internal.network.FetchTokenRequestMapper
+import app.geeklab.audiencelab.sdk.internal.network.FetchTokenResponseParser
 import app.geeklab.audiencelab.sdk.internal.network.HttpApiClient
 import app.geeklab.audiencelab.sdk.internal.network.NetworkError
 import app.geeklab.audiencelab.sdk.internal.network.RetryPolicy
 import app.geeklab.audiencelab.sdk.internal.storage.AudienceLabStateSnapshot
 import app.geeklab.audiencelab.sdk.internal.storage.AudienceLabStateStore
 import app.geeklab.audiencelab.sdk.internal.storage.InMemoryKeyValueStore
+import app.geeklab.audiencelab.sdk.internal.storage.InstallInstanceIdStore
+import app.geeklab.audiencelab.sdk.internal.storage.NoBackupInstallInstanceIdStore
 import app.geeklab.audiencelab.sdk.internal.storage.PersistedQueuedEvent
 import app.geeklab.audiencelab.sdk.internal.storage.SharedPreferencesKeyValueStore
 import app.geeklab.audiencelab.sdk.internal.util.CurrencyValue
@@ -77,6 +80,9 @@ object AudienceLabSDK {
     private var stateStore: AudienceLabStateStore = AudienceLabStateStore(InMemoryKeyValueStore())
 
     @Volatile
+    private var installInstanceIdStore: InstallInstanceIdStore? = null
+
+    @Volatile
     private var apiClient: ApiClient? = null
 
     @Volatile
@@ -84,6 +90,15 @@ object AudienceLabSDK {
 
     @Volatile
     private var tokenFetchInProgress: Boolean = false
+
+    @Volatile
+    private var installInstanceCheckCompleted: Boolean = false
+
+    @Volatile
+    private var lifecycleRegistrationAttemptedThisInitialization: Boolean = false
+
+    @Volatile
+    private var installInstanceResolutionFailedThisInitialization: Boolean = false
 
     @Volatile
     private var advertisingIdProvider: AdvertisingIdProvider? = null
@@ -826,6 +841,10 @@ object AudienceLabSDK {
         apiClient = null
         applicationContext = null
         tokenFetchInProgress = false
+        installInstanceCheckCompleted = false
+        lifecycleRegistrationAttemptedThisInitialization = false
+        installInstanceResolutionFailedThisInitialization = false
+        installInstanceIdStore = null
         tokenFetchAttempt = 0
         tokenFetchNextAttemptAtMillis = 0L
         tokenFetchLastStatus = "idle"
@@ -853,6 +872,9 @@ object AudienceLabSDK {
         requestResultCallback = null
         requestDebugListener = null
         tokenFetchInProgress = false
+        installInstanceCheckCompleted = false
+        lifecycleRegistrationAttemptedThisInitialization = false
+        installInstanceResolutionFailedThisInitialization = false
         tokenFetchAttempt = 0
         tokenFetchNextAttemptAtMillis = 0L
         tokenFetchLastStatus = "idle"
@@ -865,6 +887,14 @@ object AudienceLabSDK {
         IdentityCollector.clearProviderCache()
         PlayServicesIdentityReader.clearCache()
         Logger.configure(false)
+    }
+
+    @Synchronized
+    internal fun setInstallInstanceIdStoreForTesting(store: InstallInstanceIdStore) {
+        installInstanceIdStore = store
+        installInstanceCheckCompleted = false
+        lifecycleRegistrationAttemptedThisInitialization = false
+        installInstanceResolutionFailedThisInitialization = false
     }
 
     @Synchronized
@@ -898,6 +928,10 @@ object AudienceLabSDK {
             Logger.w("Initialization failed: API key is empty")
             return false
         }
+
+        installInstanceCheckCompleted = false
+        lifecycleRegistrationAttemptedThisInitialization = false
+        installInstanceResolutionFailedThisInitialization = false
 
         if (context != null) {
             applicationContext = context
@@ -943,6 +977,11 @@ object AudienceLabSDK {
             appVersion = appVersion,
             baseUrl = baseUrl,
             creativeToken = creativeToken,
+            localInstallInstanceId = snapshot.localInstallInstanceId,
+            registeredInstallInstanceId = snapshot.registeredInstallInstanceId,
+            installId = snapshot.installId,
+            lifecycleDecisionCode = snapshot.lifecycleDecisionCode,
+            lifecycleRefreshAfter = snapshot.lifecycleRefreshAfter,
             totalAdValue = snapshot.totalAdValue,
             totalPurchaseValue = snapshot.totalPurchaseValue,
             firstRetentionDay = snapshot.firstRetentionDay,
@@ -992,6 +1031,7 @@ object AudienceLabSDK {
 
         val sharedPreferences = context.getSharedPreferences(DEFAULT_STATE_PREFERENCES, Context.MODE_PRIVATE)
         stateStore = AudienceLabStateStore(SharedPreferencesKeyValueStore(sharedPreferences))
+        installInstanceIdStore = NoBackupInstallInstanceIdStore(context)
     }
 
     private fun configureNetworkClient(baseUrl: String) {
@@ -1010,14 +1050,6 @@ object AudienceLabSDK {
     }
 
     private fun fetchCreativeTokenIfNeeded(trigger: String) {
-        if (hasValidCreativeToken()) {
-            synchronized(this) {
-                tokenFetchLastStatus = "token_available"
-                clearTokenRetryStateLocked()
-            }
-            return
-        }
-
         val client = apiClient ?: run {
             synchronized(this) {
                 tokenFetchLastStatus = "client_unavailable"
@@ -1026,7 +1058,24 @@ object AudienceLabSDK {
         }
 
         synchronized(this) {
-            if (tokenFetchInProgress || hasValidCreativeToken()) {
+            if (tokenFetchInProgress) {
+                return
+            }
+
+            if (installInstanceResolutionFailedThisInitialization) {
+                tokenFetchLastStatus = "install_instance_error"
+                return
+            }
+
+            val localInstallInstanceId = state.localInstallInstanceId
+            if (installInstanceCheckCompleted &&
+                hasValidCreativeToken() &&
+                (lifecycleRegistrationAttemptedThisInitialization ||
+                    (localInstallInstanceId != null &&
+                        state.registeredInstallInstanceId == localInstallInstanceId))
+            ) {
+                tokenFetchLastStatus = "token_available"
+                clearTokenRetryStateLocked()
                 return
             }
 
@@ -1043,6 +1092,64 @@ object AudienceLabSDK {
         }
 
         executeAsync {
+            val installInstanceId = runCatching {
+                installInstanceIdStore?.getOrCreate()
+                    ?: error("No backup-excluded install instance store is configured")
+            }.getOrNull()
+
+            val shouldFetch = synchronized(this) {
+                if (installInstanceId == null) {
+                    installInstanceCheckCompleted = true
+                    installInstanceResolutionFailedThisInitialization = true
+                    state = state.copy(
+                        installId = null,
+                        lifecycleDecisionCode = null,
+                        lifecycleRefreshAfter = null
+                    )
+                    if (hasValidCreativeToken()) {
+                        tokenFetchInProgress = false
+                        tokenFetchLastStatus = "install_instance_error"
+                        false
+                    } else {
+                        true
+                    }
+                } else if (state.localInstallInstanceId != installInstanceId) {
+                    stateStore.reconcileInstallInstance(installInstanceId)
+                    state = state.copy(
+                        localInstallInstanceId = installInstanceId,
+                        registeredInstallInstanceId = null,
+                        installId = null,
+                        lifecycleDecisionCode = null,
+                        lifecycleRefreshAfter = null
+                    )
+                    installInstanceCheckCompleted = true
+                    true
+                } else {
+                    installInstanceCheckCompleted = true
+                    if (hasValidCreativeToken() && state.registeredInstallInstanceId == installInstanceId) {
+                        tokenFetchInProgress = false
+                        tokenFetchLastStatus = "token_available"
+                        clearTokenRetryStateLocked()
+                        false
+                    } else {
+                        true
+                    }
+                }
+            }
+            if (!shouldFetch) {
+                if (installInstanceId == null) {
+                    Logger.w("Install instance unavailable ($trigger); lifecycle fields omitted")
+                }
+                return@executeAsync
+            }
+
+            val requestState = synchronized(this) {
+                if (installInstanceId != null) {
+                    lifecycleRegistrationAttemptedThisInitialization = true
+                }
+                state
+            }
+            val requestHadCachedToken = normalizeValidToken(requestState.creativeToken) != null
             val deviceInfo = DeviceInfoCollector.collect(applicationContext)
             val identity = collectIdentity()
             val payload = FetchTokenRequestMapper.map(
@@ -1051,9 +1158,11 @@ object AudienceLabSDK {
                     sdkType = SDK_TYPE,
                     appVersion = getAppVersion(),
                     createdAtMillis = nowMillis(),
-                    developmentMode = state.developmentMode,
-                    whitelistedProperties = state.whitelistedUserProperties,
-                    blacklistedProperties = state.blacklistedUserProperties,
+                    developmentMode = requestState.developmentMode,
+                    installInstanceId = installInstanceId,
+                    cachedCreativeToken = normalizeValidToken(requestState.creativeToken),
+                    whitelistedProperties = requestState.whitelistedUserProperties,
+                    blacklistedProperties = requestState.blacklistedUserProperties,
                     deviceInfo = deviceInfo,
                     identity = identity
                 )
@@ -1065,28 +1174,53 @@ object AudienceLabSDK {
                 }
 
                 result.onSuccess { response ->
-                    val token = normalizeValidToken(response["token"] as? String)
-                    if (token != null) {
-                        synchronized(this) {
-                            state = state.copy(creativeToken = token)
-                            stateStore.setCreativeToken(token)
+                    val parsedResponse = FetchTokenResponseParser.parse(response)
+                    var shouldFlushQueue = false
+                    synchronized(this) {
+                        val responseToken = normalizeValidToken(parsedResponse.token)
+                        val effectiveToken = responseToken ?: normalizeValidToken(state.creativeToken)
+                        if (responseToken != null) {
+                            stateStore.setCreativeToken(responseToken)
+                        }
+
+                        if (installInstanceId != null && state.localInstallInstanceId == installInstanceId) {
+                            stateStore.updateLifecycleContext(
+                                installId = parsedResponse.installId,
+                                decisionCode = parsedResponse.decisionCode,
+                                refreshAfter = parsedResponse.refreshAfter
+                            )
+                            if (parsedResponse.installId != null) {
+                                stateStore.markInstallInstanceRegistered(installInstanceId)
+                            }
+                            state = state.copy(
+                                registeredInstallInstanceId = if (parsedResponse.installId != null) {
+                                    installInstanceId
+                                } else {
+                                    state.registeredInstallInstanceId
+                                },
+                                installId = parsedResponse.installId ?: state.installId,
+                                lifecycleDecisionCode = parsedResponse.decisionCode ?: state.lifecycleDecisionCode,
+                                lifecycleRefreshAfter = parsedResponse.refreshAfter ?: state.lifecycleRefreshAfter
+                            )
+                        }
+                        state = state.copy(creativeToken = effectiveToken)
+
+                        val serverWp = parsedResponse.whitelistedProperties
+                        if (serverWp.isNotEmpty()) {
+                            mergeServerWhitelistedProperties(serverWp)
+                        }
+
+                        if (effectiveToken != null) {
                             tokenFetchLastStatus = "ok"
                             clearTokenRetryStateLocked()
-                            if (state.queue.isNotEmpty()) {
-                                scheduleQueueFlush(delayMillis = 0L, reason = "token_available")
-                            }
-                        }
-                    } else {
-                        synchronized(this) {
+                            shouldFlushQueue = state.queue.isNotEmpty()
+                        } else {
                             tokenFetchLastStatus = "invalid_token"
                         }
                     }
 
-                    val serverWp = normalizeStringMap(response["wp"])
-                    if (serverWp.isNotEmpty()) {
-                        synchronized(this) {
-                            mergeServerWhitelistedProperties(serverWp)
-                        }
+                    if (shouldFlushQueue) {
+                        scheduleQueueFlush(delayMillis = 0L, reason = "token_available")
                     }
                 }.onFailure { error ->
                     val retryable = RetryPolicy.isRetryable(error)
@@ -1094,7 +1228,13 @@ object AudienceLabSDK {
                         val nextFailedAttemptCount = tokenFetchAttempt + 1
                         tokenFetchAttempt = nextFailedAttemptCount
                         tokenFetchLastStatus = readableTokenStatus(error)
-                        if (retryable && RetryPolicy.canRetryToken(nextFailedAttemptCount)) {
+                        val suppressRetry = requestHadCachedToken ||
+                            installInstanceResolutionFailedThisInitialization
+                        if (suppressRetry) {
+                            tokenFetchNextAttemptAtMillis = 0L
+                            tokenRetryFuture?.cancel(false)
+                            tokenRetryFuture = null
+                        } else if (retryable && RetryPolicy.canRetryToken(nextFailedAttemptCount)) {
                             val delayMillis = RetryPolicy.tokenBackoffMillis(
                                 attempt = nextFailedAttemptCount,
                                 jitterRatio = randomJitterRatio()
@@ -1570,6 +1710,7 @@ object AudienceLabSDK {
             } else {
                 EventDispatchSnapshot(
                     creativeToken = creativeToken,
+                    installId = stateSnapshot.installId,
                     retentionDay = currentRetentionDay(firstRetentionDay = stateSnapshot.firstRetentionDay),
                     developmentMode = stateSnapshot.developmentMode,
                     appVersion = stateSnapshot.appVersion ?: "unknown",
@@ -1590,6 +1731,7 @@ object AudienceLabSDK {
                 type = event.type,
                 payload = event.payload,
                 creativeToken = snapshot.creativeToken,
+                installId = snapshot.installId,
                 retentionDay = snapshot.retentionDay,
                 sdkVersion = getSdkVersion(),
                 sdkType = SDK_TYPE,
@@ -1983,17 +2125,6 @@ object AudienceLabSDK {
         }
     }
 
-    private fun normalizeStringMap(raw: Any?): Map<String, String> {
-        val map = raw as? Map<*, *> ?: return emptyMap()
-        return map.entries
-            .mapNotNull { entry ->
-                val key = entry.key as? String ?: return@mapNotNull null
-                val value = entry.value ?: return@mapNotNull null
-                key to value.toString()
-            }
-            .toMap()
-    }
-
     private fun mergeServerWhitelistedProperties(serverProperties: Map<String, String>) {
         if (serverProperties.isEmpty()) {
             return
@@ -2211,6 +2342,11 @@ object AudienceLabSDK {
         val appVersion: String? = null,
         val baseUrl: String? = null,
         val creativeToken: String? = null,
+        val localInstallInstanceId: String? = null,
+        val registeredInstallInstanceId: String? = null,
+        val installId: String? = null,
+        val lifecycleDecisionCode: String? = null,
+        val lifecycleRefreshAfter: String? = null,
         val deepLink: String? = null,
         val identityDebugSnapshot: IdentityDebugSnapshot = IdentityDebugSnapshot(
             settled = false,
@@ -2252,6 +2388,7 @@ object AudienceLabSDK {
 
     private data class EventDispatchSnapshot(
         val creativeToken: String,
+        val installId: String?,
         val retentionDay: Int?,
         val developmentMode: Boolean,
         val appVersion: String,

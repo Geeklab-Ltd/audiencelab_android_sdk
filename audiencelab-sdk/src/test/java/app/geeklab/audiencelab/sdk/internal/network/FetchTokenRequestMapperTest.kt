@@ -3,6 +3,7 @@ package app.geeklab.audiencelab.sdk.internal.network
 import app.geeklab.audiencelab.sdk.internal.device.DeviceInfo
 import app.geeklab.audiencelab.sdk.internal.identity.IdentitySnapshot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,6 +17,8 @@ class FetchTokenRequestMapperTest {
                 appVersion = "2.5.1",
                 createdAtMillis = 1_710_000_000_000L,
                 developmentMode = false,
+                installInstanceId = "instance-123",
+                cachedCreativeToken = "cached-token-123",
                 whitelistedProperties = mapOf("campaign" to "summer"),
                 blacklistedProperties = mapOf("external_id" to "user-123"),
                 deviceInfo = DeviceInfo(
@@ -41,6 +44,9 @@ class FetchTokenRequestMapperTest {
 
         assertEquals("device-metrics", payload["type"])
         assertEquals("2024-03-09 16:00:00", payload["created_at"])
+        assertEquals(2, payload["x0"])
+        assertEquals("instance-123", payload["x1"])
+        assertEquals("cached-token-123", payload["creativeToken"])
         val data = payload["data"] as Map<*, *>
         assertEquals("Android 14", data["os_system"])
         assertEquals("Pixel 8", data["device_name"])
@@ -57,5 +63,70 @@ class FetchTokenRequestMapperTest {
         assertEquals(true, payload["lat"])
         assertTrue(payload.containsKey("wp"))
         assertTrue(payload.containsKey("bp"))
+    }
+
+    @Test
+    fun map_omitsCachedCreativeToken_whenItIsUnavailable() {
+        val payload = FetchTokenRequestMapper.map(
+            FetchTokenBuildInput(
+                sdkVersion = "1.1.0",
+                sdkType = "native_android",
+                appVersion = "2.5.1",
+                createdAtMillis = 0L,
+                developmentMode = false,
+                installInstanceId = "instance-123",
+                cachedCreativeToken = null,
+                whitelistedProperties = emptyMap(),
+                blacklistedProperties = emptyMap(),
+                deviceInfo = DeviceInfo(
+                    deviceName = "unknown",
+                    deviceModel = "unknown",
+                    osSystem = "Android unknown",
+                    dpi = 0,
+                    width = 0,
+                    height = 0,
+                    timezone = "UTC",
+                    utcOffsetHours = 0.0,
+                    lowBatteryLevel = null,
+                    glEsVersion = null
+                ),
+                identity = IdentitySnapshot(ga = null, asid = null, aid = null, lat = null)
+            )
+        )
+
+        assertFalse(payload.containsKey("creativeToken"))
+    }
+
+    @Test
+    fun map_omitsLifecycleFields_whenNoStableInstallInstanceIsAvailable() {
+        val payload = FetchTokenRequestMapper.map(
+            FetchTokenBuildInput(
+                sdkVersion = "1.1.0",
+                sdkType = "native_android",
+                appVersion = "2.5.1",
+                createdAtMillis = 0L,
+                developmentMode = false,
+                installInstanceId = null,
+                cachedCreativeToken = null,
+                whitelistedProperties = emptyMap(),
+                blacklistedProperties = emptyMap(),
+                deviceInfo = DeviceInfo(
+                    deviceName = "unknown",
+                    deviceModel = "unknown",
+                    osSystem = "Android unknown",
+                    dpi = 0,
+                    width = 0,
+                    height = 0,
+                    timezone = "UTC",
+                    utcOffsetHours = 0.0,
+                    lowBatteryLevel = null,
+                    glEsVersion = null
+                ),
+                identity = IdentitySnapshot(ga = null, asid = null, aid = null, lat = null)
+            )
+        )
+
+        assertFalse(payload.containsKey("x0"))
+        assertFalse(payload.containsKey("x1"))
     }
 }

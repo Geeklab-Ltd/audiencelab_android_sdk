@@ -13,6 +13,8 @@ internal data class FetchTokenBuildInput(
     val appVersion: String,
     val createdAtMillis: Long,
     val developmentMode: Boolean,
+    val installInstanceId: String?,
+    val cachedCreativeToken: String?,
     val whitelistedProperties: Map<String, String>,
     val blacklistedProperties: Map<String, String>,
     val deviceInfo: DeviceInfo,
@@ -46,6 +48,14 @@ internal object FetchTokenRequestMapper {
             "app_version" to input.appVersion,
             "dev" to input.developmentMode
         )
+
+        if (!input.installInstanceId.isNullOrBlank()) {
+            payload["x0"] = 2
+            payload["x1"] = input.installInstanceId
+        }
+        if (!input.cachedCreativeToken.isNullOrBlank()) {
+            payload["creativeToken"] = input.cachedCreativeToken
+        }
 
         if (input.identity.ga?.isNotBlank() == true) {
             payload["ga"] = input.identity.ga

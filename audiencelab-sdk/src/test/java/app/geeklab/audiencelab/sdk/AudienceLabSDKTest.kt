@@ -10,6 +10,7 @@ import app.geeklab.audiencelab.sdk.internal.network.Endpoints
 import app.geeklab.audiencelab.sdk.internal.network.NetworkError
 import app.geeklab.audiencelab.sdk.internal.storage.AudienceLabStateStore
 import app.geeklab.audiencelab.sdk.internal.storage.InMemoryKeyValueStore
+import app.geeklab.audiencelab.sdk.internal.storage.InstallInstanceIdStore
 import app.geeklab.audiencelab.sdk.internal.storage.PersistedQueuedEvent
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -435,6 +436,264 @@ class AudienceLabSDKTest {
         assertEquals("FI", properties["country"])
         assertEquals("meta", properties["_network"])
         assertEquals("spring_launch", properties["campaign"])
+    }
+
+    @Test
+    fun fetchCreativeToken_registersCachedTokenUpgradeOnceAndPersistsLifecycleContext() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+        store.setCreativeToken("cached-token-123")
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.setInstallInstanceIdStoreForTesting(
+            InstallInstanceIdStore { "instance-123" }
+        )
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.clearQueueForTesting()
+
+        val requests = mutableListOf<Map<String, Any?>>()
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    assertEquals(Endpoints.FETCH_TOKEN, path)
+                    requests.add(body)
+                    callback(
+                        Result.success(
+                            mapOf(
+                                "x7" to "install-123",
+                                "x9" to "same_install",
+                                "xm" to "2026-11-27T12:30:00Z"
+                            )
+                        )
+                    )
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "cached_upgrade")
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "cached_upgrade_repeat")
+
+        assertEquals(1, requests.size)
+        assertEquals(2, requests.single()["x0"])
+        assertEquals("instance-123", requests.single()["x1"])
+        assertEquals("cached-token-123", requests.single()["creativeToken"])
+        assertEquals("cached-token-123", AudienceLabSDK.getCreativeToken())
+        val snapshot = store.loadSnapshot()
+        assertEquals("instance-123", snapshot.registeredInstallInstanceId)
+        assertEquals("install-123", snapshot.installId)
+        assertEquals("same_install", snapshot.lifecycleDecisionCode)
+        assertEquals("2026-11-27T12:30:00Z", snapshot.lifecycleRefreshAfter)
+
+        AudienceLabSDK.resetForTesting(clearPersistence = false)
+        AudienceLabSDK.setRunTasksInlineForTesting(true)
+        AudienceLabSDK.setInstallInstanceIdStoreForTesting(
+            InstallInstanceIdStore { "instance-123" }
+        )
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.clearQueueForTesting()
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    requests.add(body)
+                    callback(Result.success(emptyMap()))
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "process_restart")
+
+        assertEquals(1, requests.size)
+    }
+
+    @Test
+    fun fetchCreativeToken_changedInstallInstanceInvalidatesLifecycleButRetainsToken() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+        store.setCreativeToken("cached-token-123")
+        store.reconcileInstallInstance("instance-old")
+        store.markInstallInstanceRegistered("instance-old")
+        store.updateLifecycleContext(
+            installId = "install-old",
+            decisionCode = "initial_matched",
+            refreshAfter = "2026-11-01T00:00:00Z"
+        )
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.setInstallInstanceIdStoreForTesting(
+            InstallInstanceIdStore { "instance-new" }
+        )
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.clearQueueForTesting()
+
+        var snapshotBeforeResponse: app.geeklab.audiencelab.sdk.internal.storage.AudienceLabStateSnapshot? = null
+        var request: Map<String, Any?>? = null
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    request = body
+                    snapshotBeforeResponse = store.loadSnapshot()
+                    callback(
+                        Result.success(
+                            mapOf(
+                                "x7" to "install-new",
+                                "x9" to "probable_reinstall",
+                                "xm" to "2026-12-01T00:00:00Z"
+                            )
+                        )
+                    )
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "changed_instance")
+
+        assertEquals("instance-new", request?.get("x1"))
+        assertEquals("cached-token-123", request?.get("creativeToken"))
+        assertEquals("cached-token-123", snapshotBeforeResponse?.creativeToken)
+        assertEquals("instance-new", snapshotBeforeResponse?.localInstallInstanceId)
+        assertNull(snapshotBeforeResponse?.registeredInstallInstanceId)
+        assertNull(snapshotBeforeResponse?.installId)
+        assertNull(snapshotBeforeResponse?.lifecycleDecisionCode)
+        assertNull(snapshotBeforeResponse?.lifecycleRefreshAfter)
+        val updated = store.loadSnapshot()
+        assertEquals("install-new", updated.installId)
+        assertEquals("probable_reinstall", updated.lifecycleDecisionCode)
+        assertEquals("2026-12-01T00:00:00Z", updated.lifecycleRefreshAfter)
+    }
+
+    @Test
+    fun fetchCreativeToken_cachedMigrationAttemptsOnceThenRetriesOnNextInitialization() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+        store.setCreativeToken("cached-token-123")
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.setInstallInstanceIdStoreForTesting(
+            InstallInstanceIdStore { "instance-123" }
+        )
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.clearQueueForTesting()
+
+        val requestCount = AtomicInteger(0)
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    requestCount.incrementAndGet()
+                    callback(
+                        Result.failure(
+                            NetworkError.HttpFailure(
+                                statusCode = 503,
+                                responseBody = emptyMap()
+                            )
+                        )
+                    )
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "migration_failure")
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "migration_failure_repeat")
+
+        assertEquals(1, requestCount.get())
+        assertNull(store.loadSnapshot().registeredInstallInstanceId)
+
+        AudienceLabSDK.resetForTesting(clearPersistence = false)
+        AudienceLabSDK.setRunTasksInlineForTesting(true)
+        AudienceLabSDK.setInstallInstanceIdStoreForTesting(
+            InstallInstanceIdStore { "instance-123" }
+        )
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.clearQueueForTesting()
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    requestCount.incrementAndGet()
+                    callback(Result.success(mapOf("x7" to "install-123")))
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "migration_next_launch")
+
+        assertEquals(2, requestCount.get())
+        assertEquals("install-123", store.loadSnapshot().installId)
+        assertEquals("instance-123", store.loadSnapshot().registeredInstallInstanceId)
+    }
+
+    @Test
+    fun fetchCreativeToken_installInstanceStorageFailureOmitsLifecycleFields() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+        store.setCreativeToken("cached-token-123")
+        store.reconcileInstallInstance("instance-old")
+        store.markInstallInstanceRegistered("instance-old")
+        store.updateLifecycleContext(
+            installId = "install-old",
+            decisionCode = "same_install",
+            refreshAfter = "2026-11-01T00:00:00Z"
+        )
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.setInstallInstanceIdStoreForTesting(
+            InstallInstanceIdStore { throw IllegalStateException("storage unavailable") }
+        )
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.clearQueueForTesting()
+
+        val calledPaths = mutableListOf<String>()
+        val webhookBodies = mutableListOf<Map<String, Any?>>()
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    calledPaths.add(path)
+                    if (path == Endpoints.WEBHOOK) {
+                        webhookBodies.add(body)
+                    }
+                    callback(Result.success(emptyMap()))
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "storage_failure")
+        AudienceLabSDK.sendCustomEvent("after_storage_failure")
+
+        assertEquals(listOf(Endpoints.WEBHOOK), calledPaths)
+        assertEquals(1, webhookBodies.size)
+        assertFalse(webhookBodies.single().containsKey("x7"))
+        assertEquals("cached-token-123", webhookBodies.single()["creativeToken"])
+    }
+
+    @Test
+    fun fetchCreativeToken_addsNewInstallIdWhenQueuedEventIsFlushed() {
+        val backing = mutableMapOf<String, Any?>()
+        val store = AudienceLabStateStore(InMemoryKeyValueStore(backing))
+        store.setCreativeToken("cached-token-123")
+        AudienceLabSDK.setStateStoreForTesting(store)
+        AudienceLabSDK.setInstallInstanceIdStoreForTesting(
+            InstallInstanceIdStore { "instance-123" }
+        )
+        AudienceLabSDK.initialize("test-api-key-123")
+        AudienceLabSDK.clearQueueForTesting()
+        AudienceLabSDK.sendCustomEvent("queued_before_registration")
+
+        val webhookBodies = mutableListOf<Map<String, Any?>>()
+        AudienceLabSDK.setApiClientForTesting(
+            object : ApiClient {
+                override fun post(path: String, body: Map<String, Any?>, callback: (Result<Map<String, Any?>>) -> Unit) {
+                    if (path == Endpoints.FETCH_TOKEN) {
+                        callback(Result.success(mapOf("x7" to "install-123", "x9" to "same_install")))
+                    } else {
+                        webhookBodies.add(body)
+                        callback(Result.success(emptyMap()))
+                    }
+                }
+            }
+        )
+
+        invokePrivateSdkMethod("fetchCreativeTokenIfNeeded", "flush_after_registration")
+
+        assertEquals(1, webhookBodies.size)
+        assertEquals("install-123", webhookBodies.single()["x7"])
+        assertEquals(
+            "queued_before_registration",
+            (webhookBodies.single()["payload"] as? Map<*, *>)?.get("en")
+        )
     }
 
     @Test

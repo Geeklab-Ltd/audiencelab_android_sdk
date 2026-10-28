@@ -32,6 +32,7 @@ internal class HttpApiClient(
         val requestBodyString = JsonCodec.toJsonString(body)
         val requestName = deriveRequestName(path = path, body = body)
         val authHeaderPreview = sanitizeApiKeyPreview(apiKey)
+        val observerRequestBody = RequestDebugSanitizer.requestBody(path = path, body = body)
 
         return try {
             connection.requestMethod = "POST"
@@ -61,9 +62,9 @@ internal class HttpApiClient(
                     requestName = requestName,
                     endpoint = path,
                     authHeaderPreview = authHeaderPreview,
-                    requestBody = requestBodyString,
+                    requestBody = observerRequestBody,
                     responseStatusCode = status,
-                    responseBody = responseBody,
+                    responseBody = RequestDebugSanitizer.responseBody(path = path, body = parsed),
                     success = true,
                     errorMessage = null,
                     timestampMillis = System.currentTimeMillis()
@@ -76,9 +77,11 @@ internal class HttpApiClient(
                     requestName = requestName,
                     endpoint = path,
                     authHeaderPreview = authHeaderPreview,
-                    requestBody = requestBodyString,
+                    requestBody = observerRequestBody,
                     responseStatusCode = (error as? NetworkError.HttpFailure)?.statusCode,
-                    responseBody = (error as? NetworkError.HttpFailure)?.responseBody?.let(JsonCodec::toJsonString),
+                    responseBody = (error as? NetworkError.HttpFailure)?.responseBody?.let { response ->
+                        RequestDebugSanitizer.responseBody(path = path, body = response)
+                    },
                     success = false,
                     errorMessage = error.message,
                     timestampMillis = System.currentTimeMillis()
@@ -91,7 +94,7 @@ internal class HttpApiClient(
                     requestName = requestName,
                     endpoint = path,
                     authHeaderPreview = authHeaderPreview,
-                    requestBody = requestBodyString,
+                    requestBody = observerRequestBody,
                     responseStatusCode = null,
                     responseBody = null,
                     success = false,

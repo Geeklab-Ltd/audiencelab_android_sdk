@@ -24,6 +24,11 @@ internal data class AudienceLabStateSnapshot(
     val debugEnabled: Boolean,
     val appVersion: String?,
     val creativeToken: String?,
+    val localInstallInstanceId: String?,
+    val registeredInstallInstanceId: String?,
+    val installId: String?,
+    val lifecycleDecisionCode: String?,
+    val lifecycleRefreshAfter: String?,
     val totalAdValue: Double,
     val totalPurchaseValue: Double,
     val firstRetentionDay: Int?,
@@ -79,6 +84,11 @@ internal class AudienceLabStateStore(
             debugEnabled = keyValueStore.getBoolean(KEY_DEBUG_ENABLED, false),
             appVersion = keyValueStore.getString(KEY_APP_VERSION, null),
             creativeToken = keyValueStore.getString(KEY_CREATIVE_TOKEN, null),
+            localInstallInstanceId = keyValueStore.getString(KEY_LOCAL_INSTALL_INSTANCE_ID, null),
+            registeredInstallInstanceId = keyValueStore.getString(KEY_REGISTERED_INSTALL_INSTANCE_ID, null),
+            installId = keyValueStore.getString(KEY_INSTALL_ID, null),
+            lifecycleDecisionCode = keyValueStore.getString(KEY_LIFECYCLE_DECISION_CODE, null),
+            lifecycleRefreshAfter = keyValueStore.getString(KEY_LIFECYCLE_REFRESH_AFTER, null),
             totalAdValue = totalAdValue,
             totalPurchaseValue = totalPurchaseValue,
             firstRetentionDay = firstRetentionDay,
@@ -108,6 +118,35 @@ internal class AudienceLabStateStore(
 
     fun setCreativeToken(token: String?) {
         keyValueStore.putString(KEY_CREATIVE_TOKEN, token?.trim()?.takeIf { it.isNotEmpty() })
+    }
+
+    fun reconcileInstallInstance(installInstanceId: String): Boolean {
+        val normalized = installInstanceId.trim()
+        require(normalized.isNotEmpty()) { "Install instance ID must not be empty" }
+        if (keyValueStore.getString(KEY_LOCAL_INSTALL_INSTANCE_ID, null) == normalized) {
+            return false
+        }
+
+        keyValueStore.putString(KEY_LOCAL_INSTALL_INSTANCE_ID, normalized)
+        keyValueStore.remove(KEY_REGISTERED_INSTALL_INSTANCE_ID)
+        keyValueStore.remove(KEY_INSTALL_ID)
+        keyValueStore.remove(KEY_LIFECYCLE_DECISION_CODE)
+        keyValueStore.remove(KEY_LIFECYCLE_REFRESH_AFTER)
+        return true
+    }
+
+    fun markInstallInstanceRegistered(installInstanceId: String) {
+        putNonBlankString(KEY_REGISTERED_INSTALL_INSTANCE_ID, installInstanceId)
+    }
+
+    fun updateLifecycleContext(
+        installId: String?,
+        decisionCode: String?,
+        refreshAfter: String?
+    ) {
+        putNonBlankString(KEY_INSTALL_ID, installId)
+        putNonBlankString(KEY_LIFECYCLE_DECISION_CODE, decisionCode)
+        putNonBlankString(KEY_LIFECYCLE_REFRESH_AFTER, refreshAfter)
     }
 
     fun setTotalAdValue(value: Double) {
@@ -161,6 +200,11 @@ internal class AudienceLabStateStore(
 
     private fun writeDouble(key: String, value: Double) {
         keyValueStore.putLong(key, value.toBits())
+    }
+
+    private fun putNonBlankString(key: String, value: String?) {
+        val normalized = value?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        keyValueStore.putString(key, normalized)
     }
 
     private fun readNullableInt(key: String): Int? {
@@ -363,6 +407,11 @@ internal class AudienceLabStateStore(
         const val KEY_APP_VERSION = "cfg.app_version"
 
         const val KEY_CREATIVE_TOKEN = "token.creative"
+        const val KEY_LOCAL_INSTALL_INSTANCE_ID = "lifecycle.local_install_instance_id"
+        const val KEY_REGISTERED_INSTALL_INSTANCE_ID = "lifecycle.registered_install_instance_id"
+        const val KEY_INSTALL_ID = "lifecycle.install_id"
+        const val KEY_LIFECYCLE_DECISION_CODE = "lifecycle.decision_code"
+        const val KEY_LIFECYCLE_REFRESH_AFTER = "lifecycle.refresh_after"
         const val KEY_TOTAL_AD_VALUE = "counter.total_ad_value"
         const val KEY_TOTAL_PURCHASE_VALUE = "counter.total_purchase_value"
 

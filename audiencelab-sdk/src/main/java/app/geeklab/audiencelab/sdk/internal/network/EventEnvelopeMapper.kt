@@ -12,6 +12,7 @@ internal data class EnvelopeBuildInput(
     val type: String,
     val payload: Map<String, Any?>,
     val creativeToken: String,
+    val installId: String?,
     val retentionDay: Int?,
     val sdkVersion: String,
     val sdkType: String,
@@ -53,6 +54,9 @@ internal object EventEnvelopeMapper {
 
         if (input.retentionDay != null) {
             envelope["retention_day"] = input.retentionDay
+        }
+        if (!input.installId.isNullOrBlank()) {
+            envelope["x7"] = input.installId
         }
 
         if (input.identity.ga?.isNotBlank() == true) {

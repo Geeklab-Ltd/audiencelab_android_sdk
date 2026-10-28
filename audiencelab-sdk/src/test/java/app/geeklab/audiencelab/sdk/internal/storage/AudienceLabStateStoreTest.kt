@@ -19,6 +19,11 @@ class AudienceLabStateStoreTest {
         assertFalse(snapshot.debugEnabled)
         assertNull(snapshot.appVersion)
         assertNull(snapshot.creativeToken)
+        assertNull(snapshot.localInstallInstanceId)
+        assertNull(snapshot.registeredInstallInstanceId)
+        assertNull(snapshot.installId)
+        assertNull(snapshot.lifecycleDecisionCode)
+        assertNull(snapshot.lifecycleRefreshAfter)
         assertEquals(0.0, snapshot.totalAdValue, 0.0001)
         assertEquals(0.0, snapshot.totalPurchaseValue, 0.0001)
         assertNull(snapshot.firstRetentionDay)
@@ -43,6 +48,13 @@ class AudienceLabStateStoreTest {
             appVersion = "1.2.3"
         )
         writer.setCreativeToken("creative-token-123")
+        writer.reconcileInstallInstance("instance-123")
+        writer.markInstallInstanceRegistered("instance-123")
+        writer.updateLifecycleContext(
+            installId = "install-123",
+            decisionCode = "initial_matched",
+            refreshAfter = "2026-11-27T12:30:00Z"
+        )
         writer.setTotalAdValue(11.5)
         writer.setTotalPurchaseValue(3.25)
         writer.setRetentionMarkers(firstRetentionDay = 100, lastRetentionDay = 101)
@@ -81,6 +93,11 @@ class AudienceLabStateStoreTest {
         assertTrue(snapshot.debugEnabled)
         assertEquals("1.2.3", snapshot.appVersion)
         assertEquals("creative-token-123", snapshot.creativeToken)
+        assertEquals("instance-123", snapshot.localInstallInstanceId)
+        assertEquals("instance-123", snapshot.registeredInstallInstanceId)
+        assertEquals("install-123", snapshot.installId)
+        assertEquals("initial_matched", snapshot.lifecycleDecisionCode)
+        assertEquals("2026-11-27T12:30:00Z", snapshot.lifecycleRefreshAfter)
         assertEquals(11.5, snapshot.totalAdValue, 0.0001)
         assertEquals(3.25, snapshot.totalPurchaseValue, 0.0001)
         assertEquals(100, snapshot.firstRetentionDay)
@@ -139,5 +156,28 @@ class AudienceLabStateStoreTest {
         assertEquals(0L, snapshot.sessionAccumulatedDurationMillis)
         assertNull(snapshot.sessionSegmentStartAtMillis)
         assertTrue(snapshot.queuedEvents.isEmpty())
+    }
+
+    @Test
+    fun reconcileInstallInstance_clearsLifecycleContextButRetainsCreativeToken() {
+        val store = AudienceLabStateStore(InMemoryKeyValueStore())
+        store.setCreativeToken("creative-token-123")
+        store.reconcileInstallInstance("instance-old")
+        store.markInstallInstanceRegistered("instance-old")
+        store.updateLifecycleContext(
+            installId = "install-old",
+            decisionCode = "initial_matched",
+            refreshAfter = "2026-11-27T12:30:00Z"
+        )
+
+        assertTrue(store.reconcileInstallInstance("instance-new"))
+
+        val snapshot = store.loadSnapshot()
+        assertEquals("creative-token-123", snapshot.creativeToken)
+        assertEquals("instance-new", snapshot.localInstallInstanceId)
+        assertNull(snapshot.registeredInstallInstanceId)
+        assertNull(snapshot.installId)
+        assertNull(snapshot.lifecycleDecisionCode)
+        assertNull(snapshot.lifecycleRefreshAfter)
     }
 }
