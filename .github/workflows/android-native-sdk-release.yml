@@ -1,0 +1,199 @@
+name: Android Native SDK Release
+
+on:
+  push:
+    tags:
+      - "android-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing Android release version tag to publish or rerun"
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            TAG="${GITHUB_REF_NAME}"
+            case "$TAG" in
+              android-v*) ;;
+              *)
+                echo "Invalid tag format: $TAG"
+                exit 1
+                ;;
+            esac
+            VERSION="${TAG#android-v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            TAG="android-v$VERSION"
+          fi
+
+          echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "requested_version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate and checkout source tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+          TAG="${{ steps.request.outputs.release_tag }}"
+          if ! git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Missing source tag in this repository: $TAG"
+            exit 1
+          fi
+          git checkout "refs/tags/$TAG"
+          test -f settings.gradle.kts
+          test -f audiencelab-sdk/build.gradle.kts
+          test -f gradlew
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_VERSION=$(awk -F= '/^SDK_VERSION=/{print $2}' gradle.properties)
+          POM_GROUP_ID=$(awk -F= '/^POM_GROUP_ID=/{print $2}' gradle.properties)
+          POM_ARTIFACT_ID=$(awk -F= '/^POM_ARTIFACT_ID=/{print $2}' gradle.properties)
+
+          if [ -z "$SDK_VERSION" ]; then
+            echo "Unable to resolve SDK_VERSION from gradle.properties"
+            exit 1
+          fi
+          if [ -z "$POM_GROUP_ID" ] || [ -z "$POM_ARTIFACT_ID" ]; then
+            echo "Unable to resolve Maven coordinates from gradle.properties"
+            exit 1
+          fi
+          if [ "${{ steps.request.outputs.requested_version }}" != "$SDK_VERSION" ]; then
+            echo "Release tag version does not match SDK_VERSION ($SDK_VERSION)."
+            exit 1
+          fi
+
+          echo "release_version=$SDK_VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${{ steps.request.outputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          echo "package_name=$POM_GROUP_ID.$POM_ARTIFACT_ID" >> "$GITHUB_OUTPUT"
+          echo "versioned_aar=audiencelab-sdk/build/outputs/versioned-aar/audiencelab-sdk-release-$SDK_VERSION.aar" >> "$GITHUB_OUTPUT"
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v5
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Install Android platform packages
+        run: |
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-36"
+          sdkmanager "build-tools;36.0.0"
+
+      - name: Build, test, and package Android SDK
+        run: |
+          ./gradlew --no-daemon :audiencelab-sdk:testDebugUnitTest --stacktrace
+          ./gradlew --no-daemon :audiencelab-sdk:assembleRelease --stacktrace
+          ./gradlew --no-daemon :audiencelab-sdk:publishReleasePublicationToMavenLocal --stacktrace
+          ./gradlew --no-daemon :sample-app:assembleDebug --stacktrace
+
+      - name: Check existing Maven package version
+        id: package_version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_NAME: ${{ steps.meta.outputs.package_name }}
+          RELEASE_VERSION: ${{ steps.meta.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          ENCODED_PACKAGE_NAME=$(python3 -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["PACKAGE_NAME"], safe=""))')
+          API_URL="https://api.github.com/orgs/${GITHUB_REPOSITORY_OWNER}/packages/maven/${ENCODED_PACKAGE_NAME}/versions?per_page=100"
+
+          HTTP_STATUS=$(curl -sS \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -o /tmp/audiencelab-package-versions.json \
+            -w "%{http_code}" \
+            "$API_URL")
+
+          case "$HTTP_STATUS" in
+            200)
+              if jq -e --arg version "$RELEASE_VERSION" '.[] | select(.name == $version)' /tmp/audiencelab-package-versions.json >/dev/null; then
+                echo "exists=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "exists=false" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+            404)
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Failed to query package versions (HTTP $HTTP_STATUS)"
+              exit 1
+              ;;
+          esac
+
+      - name: Publish Android Maven artifact
+        if: steps.package_version.outputs.exists != 'true'
+        env:
+          AUDIENCELAB_PACKAGE_USERNAME: ${{ github.actor }}
+          AUDIENCELAB_PACKAGE_TOKEN: ${{ github.token }}
+          AUDIENCELAB_PACKAGE_REPOSITORY: ${{ github.repository }}
+        run: ./gradlew --no-daemon :audiencelab-sdk:publishReleasePublicationToGitHubPackagesRepository --stacktrace
+
+      - name: Skip existing Maven package version
+        if: steps.package_version.outputs.exists == 'true'
+        run: echo "Package version ${{ steps.meta.outputs.release_version }} already exists; skipping Maven publish."
+
+      - name: Upload versioned AAR artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: audiencelab-android-sdk-release-aar-${{ steps.meta.outputs.release_version }}
+          path: ${{ steps.meta.outputs.versioned_aar }}
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
+          VERSIONED_AAR: ${{ steps.meta.outputs.versioned_aar }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_TAG" \
+              --notes ""
+            gh release upload "$RELEASE_TAG" "$VERSIONED_AAR" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$VERSIONED_AAR" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_TAG" \
+              --notes ""
+          fi

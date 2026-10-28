@@ -1,0 +1,80 @@
+name: Android Native SDK CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+    tags-ignore:
+      - "**"
+    paths:
+      - "audiencelab-sdk/**"
+      - "sample-app/**"
+      - "gradle/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - "gradlew"
+      - ".github/workflows/android-native-sdk.yml"
+      - ".github/workflows/android-native-sdk-release.yml"
+  pull_request:
+    paths:
+      - "audiencelab-sdk/**"
+      - "sample-app/**"
+      - "gradle/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - "gradlew"
+      - ".github/workflows/android-native-sdk.yml"
+      - ".github/workflows/android-native-sdk-release.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v5
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Install Android platform packages
+        run: |
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-36"
+          sdkmanager "build-tools;36.0.0"
+
+      - name: Run unit tests and builds
+        run: |
+          ./gradlew --no-daemon :audiencelab-sdk:testDebugUnitTest --stacktrace
+          ./gradlew --no-daemon :audiencelab-sdk:assembleRelease --stacktrace
+          ./gradlew --no-daemon :audiencelab-sdk:publishReleasePublicationToMavenLocal --stacktrace
+          ./gradlew --no-daemon :sample-app:assembleDebug --stacktrace
+
+      - name: Verify release AAR exists
+        run: ls audiencelab-sdk/build/outputs/versioned-aar/audiencelab-sdk-release-*.aar
+
+      - name: Upload release AAR
+        uses: actions/upload-artifact@v6
+        with:
+          name: audiencelab-android-sdk-release-aar
+          path: audiencelab-sdk/build/outputs/versioned-aar/audiencelab-sdk-release-*.aar

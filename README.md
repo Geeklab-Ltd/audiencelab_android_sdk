@@ -1,185 +1,50 @@
-# AudienceLab Android SDK
+# Audiencelab Android SDK
 
-## Introduction
+Native Android SDK source and release repository for Audiencelab.
 
-AudienceLab provides privacy-centric measurement for Android games and apps by connecting campaign performance to creative-level analytics.
+## Repository layout
 
-## Objectives
+- `audiencelab-sdk/`: Android library module published as an AAR and Maven package.
+- `sample-app/`: Integration and runtime verification app.
+- `docs/INTEGRATION.md`: Client integration guide published with releases.
+- `DEVELOPER_README.md`: SDK API and development guide.
+- `DISTRIBUTION.md`: Artifact and release-process details.
 
-- Enable Android developers to integrate AudienceLab into their apps with a lightweight native SDK.
-- Capture session, retention, ad, purchase, and custom events for AudienceLab reporting.
+## Build requirements
 
-## Prerequisites
+- JDK 17 or newer
+- Android SDK platform 36
+- Android build-tools 36.0.0
 
-Developers will need:
+The SDK supports Android API 23 and newer.
 
-- an Android app or game project
-- minimum SDK `23`
-- internet permission in the app manifest
-- an AudienceLab API key
+## Local validation
 
-Required manifest entry:
+Run the complete validation set from the repository root:
 
-```xml
-<uses-permission android:name="android.permission.INTERNET" />
+```bash
+./gradlew --no-daemon :audiencelab-sdk:testDebugUnitTest
+./gradlew --no-daemon :audiencelab-sdk:assembleRelease
+./gradlew --no-daemon :audiencelab-sdk:publishReleasePublicationToMavenLocal
+./gradlew --no-daemon :sample-app:assembleDebug
 ```
 
-## Integrating AudienceLab SDK into Android
+When the local Android toolchain is unavailable, use the Docker validation scripts:
 
-This section provides the recommended ways to integrate the AudienceLab Android SDK into your project.
-
-### Option 1: Install via Gradle/Maven (Recommended)
-
-Add the package repository provided by AudienceLab:
-
-```kotlin
-repositories {
-    maven {
-        url = uri("https://maven.pkg.github.com/geeklab-ltd/audiencelab_android_sdk")
-        credentials {
-            username = providers.gradleProperty("gpr.user").orNull
-            password = providers.gradleProperty("gpr.key").orNull
-        }
-    }
-}
+```bash
+./docker/build-image.sh
+./docker/run-quick.sh
 ```
 
-Add the dependency:
+Use `./docker/run-tests.sh` for the full release-style validation pass.
 
-```kotlin
-dependencies {
-    implementation("ai.audiencelab:audiencelab-android-sdk:1.1.11")
-}
-```
+## Distribution
 
-Recommended `~/.gradle/gradle.properties` entries:
+Release outputs are:
 
-```properties
-gpr.user=YOUR_GITHUB_USERNAME
-gpr.key=YOUR_GITHUB_PACKAGES_TOKEN
-```
+- `audiencelab-sdk/build/outputs/versioned-aar/audiencelab-sdk-release-<version>.aar`
+- `ai.audiencelab:audiencelab-android-sdk:<version>`
 
-### Option 2: Manual Installation
+Only release AARs are intended for client distribution. Runtime development mode is controlled by the integrating app through `AudienceLabOptions`; it is not derived from the AAR build type.
 
-If you received a release AAR instead of package-feed access:
-
-1. Download `audiencelab-sdk-release-1.1.11.aar`
-2. Place it in your app project, for example `app/libs/`
-3. Add it as a file dependency
-
-```kotlin
-dependencies {
-    implementation(files("libs/audiencelab-sdk-release-1.1.11.aar"))
-}
-```
-
-## Configure the SDK
-
-Initialize the SDK early in app startup:
-
-```kotlin
-import app.geeklab.audiencelab.sdk.AudienceLabOptions
-import app.geeklab.audiencelab.sdk.AudienceLabSDK
-
-AudienceLabSDK.initialize(
-    context = applicationContext,
-    apiKey = BuildConfig.AUDIENCELAB_API_KEY,
-    options = AudienceLabOptions(
-        isDevelopmentMode = BuildConfig.DEBUG,
-        isDebugEnabled = BuildConfig.DEBUG,
-        autoResolveGooglePlayIds = true
-    )
-)
-```
-
-If your app runs in a restricted-network environment and Google Play Services ID lookup can stall, set `autoResolveGooglePlayIds = false` and provide app-supplied GAID or App Set ID later through manual setters or custom providers. If those app-supplied values change later, call `clearIdentityCache()` before expecting the SDK to resolve them again.
-
-Recommended app-module setup:
-
-```kotlin
-android {
-    defaultConfig {
-        buildConfigField("String", "AUDIENCELAB_API_KEY", "\"replace-with-your-api-key\"")
-    }
-}
-```
-
-For more detailed setup instructions, see the [Integration Guide](docs/INTEGRATION.md).
-
-## Finalizing SDK Integration
-
-After configuration:
-
-1. Build your Android app
-2. Launch the app and verify SDK initialization succeeds
-3. Confirm the SDK receives a creative token successfully
-4. Verify events are sent without runtime errors
-
-## Event Tracking
-
-### Purchase Events
-
-Use purchase events to track completed purchases:
-
-```kotlin
-AudienceLabSDK.sendPurchaseEvent(
-    itemId = "starter_pack",
-    itemName = "Starter Pack",
-    value = 4.99,
-    currency = "USD",
-    status = "success",
-    transactionId = "order-123"
-)
-```
-
-### Ad Events
-
-Use ad events to track ad impressions and rewarded ads:
-
-```kotlin
-AudienceLabSDK.sendAdEvent(
-    adId = "rewarded_video_1",
-    name = "rewarded_video",
-    source = "admob",
-    watchTime = 30.0,
-    reward = true,
-    mediaSource = "campaign_a",
-    channel = "rewarded",
-    value = 0.75,
-    currency = "USD"
-)
-```
-
-### Custom Events
-
-Use custom events for game-specific or app-specific actions:
-
-```kotlin
-AudienceLabSDK.sendCustomEvent(
-    name = "level_start",
-    params = mapOf(
-        "level" to 1,
-        "mode" to "normal"
-    )
-)
-```
-
-## User Properties
-
-The SDK supports both whitelisted (`wp`) and blacklisted (`bp`) user properties.
-
-Whitelisted properties returned by the creative-token response are stored automatically by the SDK. Reserved whitelisted keys starting with `_` are AudienceLab-managed and cannot be set manually from the app.
-
-For blacklisted `email` and `phone` values, the Android SDK automatically SHA-256 hashes the normalized value before it is stored or sent.
-
-## Version Information
-
-Current SDK line:
-
-- SDK version: `1.1.11`
-- minimum SDK: `23`
-- target SDK: `36`
-
-## Conclusion
-
-By integrating the AudienceLab Android SDK, developers can send the core event and attribution data required for AudienceLab reporting while keeping setup straightforward in native Android projects.
+See [DISTRIBUTION.md](DISTRIBUTION.md) for the maintainer release flow and [docs/INTEGRATION.md](docs/INTEGRATION.md) for client setup.
