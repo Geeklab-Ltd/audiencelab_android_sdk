@@ -2,7 +2,6 @@ package app.geeklab.audiencelab.sdk.internal.network
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RequestDebugSanitizerTest {
@@ -23,7 +22,7 @@ class RequestDebugSanitizerTest {
     }
 
     @Test
-    fun requestBody_redactsLifecycleIdentifiersFromOrdinaryEvents() {
+    fun requestBody_hidesEntireOrdinaryEventRequest() {
         val debugBody = RequestDebugSanitizer.requestBody(
             path = Endpoints.WEBHOOK,
             body = mapOf(
@@ -33,7 +32,7 @@ class RequestDebugSanitizerTest {
             )
         )
 
-        assertTrue(debugBody.contains("[REDACTED]"))
+        assertEquals("{\"redacted\":true}", debugBody)
         assertFalse(debugBody.contains("token-secret"))
         assertFalse(debugBody.contains("install-secret"))
     }
